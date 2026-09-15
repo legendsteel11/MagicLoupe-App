@@ -233,8 +233,9 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
 }
 .shot{position:relative;transition:border-color .2s ease-in-out, box-shadow .2s ease-in-out}
 /* The frame comes forward while its card is pointed at, which is also when
-   its pictures play. */
-.tile:hover .shot{border-color:#5a5d68;box-shadow:0 6px 16px rgba(0,0,0,.32), 0 2px 4px rgba(0,0,0,.24)}
+   its pictures play. By its shadow only: the border keeps its own colour
+   (owner, 2026-09-16). */
+.tile:hover .shot{box-shadow:0 6px 16px rgba(0,0,0,.32), 0 2px 4px rgba(0,0,0,.24)}
 /* Each picture at its own pixel size, cut to the square around its middle
    rather than shrunk into it: shrinking softens the numbers the pictures are
    there to show. Several are stacked and take turns, a quick fade each,
@@ -245,8 +246,10 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
   opacity:0;transition:opacity .25s ease-in-out, filter .3s ease-in-out;
   /* Grey and dimmed until the card is looked at, so the page reads as one
      quiet surface and the card under the pointer comes up in colour (owner,
-     2026-09-16). On a touch screen the script marks the card that is playing. */
-  filter:grayscale(1) brightness(.6);
+     2026-09-16). On a touch screen the script marks the card that is playing.
+     Down from .6 to .35 the same day, so the resting cards sit further back
+     (owner). */
+  filter:grayscale(1) brightness(.35);
 }
 .tile:hover .shot img, .tile.live .shot img{filter:none}
 .shot img.on, .shot img:only-child{opacity:1}
