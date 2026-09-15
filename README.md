@@ -40,6 +40,7 @@ in `%AppData%\MagicLoupe`.
 - **Overlay filters.** Apply a green, red, mono, dark or light filter to read
   measurements easily on a busy screen.
 - **Screen freeze.** Freeze a screen that keeps changing and measure it at rest.
+- **Gap sum.** Click gaps one by one to add them together.
   Ctrl+Alt+F switches it on and off.
 - **Ruler guides and grid.** Pull guides out of the rulers and line them up with
   elements, show the grid and snap to it.

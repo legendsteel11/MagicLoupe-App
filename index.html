@@ -108,11 +108,12 @@ main::before{
 .hero p.kicker{color:var(--fg-dim);font-weight:600;font-size:14px;margin-bottom:4px}
 .hero h1{
   font-size:36px;line-height:1.3;font-weight:600;letter-spacing:-.02em;
-  margin-bottom:44px;
+  margin-bottom:44px;color:#a3a8b4;
 }
-/* The two capitals in the logo's own colours: the blue ring and the yellow L. */
-.hero h1 .c-m{color:#0eb5ff}
-.hero h1 .c-l{color:#fcc302}
+/* One quiet grey for the name and a muted blue for its second half (owner,
+   2026-09-16). The logo's own blue and yellow on two capitals were louder than
+   the pictures under them. */
+.hero h1 .c-l{color:#7892cd}
 
 /* The captures and nothing around them, fading from one to the next.
 
@@ -334,12 +335,12 @@ footer{
   <div class="wrap hero">
     <img class="logo" src="./icon.png" alt="" />
     <p class="kicker">
-      <span data-i="ko">Windows 화면 자동 측정 유틸리티 - 매직 루페</span>
-      <span data-i="en">Automatic screen measurement utility for Windows</span>
+      <span data-i="ko">Windows 화면 실시간 측정 유틸리티 - 매직 루페</span>
+      <span data-i="en">Real-time screen measurement utility for Windows</span>
     </p>
     <h1>
-      <span data-i="ko"><span class="c-m">M</span>agic<span class="c-l">L</span>oupe</span>
-      <span data-i="en"><span class="c-m">M</span>agic<span class="c-l">L</span>oupe</span>
+      <span data-i="ko">Magic<span class="c-l">Loupe</span></span>
+      <span data-i="en">Magic<span class="c-l">Loupe</span></span>
     </h1>
     <!-- One set for both languages. Nothing in them is a word: the bar is
          icons, the reading line is numbers, and what they are showing is a
@@ -347,6 +348,9 @@ footer{
     <div class="shots" id="shots">
       <img class="on" src="./screenshots/hero-sc-01.png" alt="MagicLoupe" width="512" height="512" />
       <img src="./screenshots/hero-sc-02.png" alt="" width="512" height="512" />
+      <img src="./screenshots/hero-sc-03.png" alt="" width="512" height="512" />
+      <img src="./screenshots/hero-sc-04.png" alt="" width="512" height="512" />
+      <img src="./screenshots/hero-sc-05.png" alt="" width="512" height="512" />
     </div>
   </div>
 
@@ -465,11 +469,12 @@ footer{
           <div class="shot" aria-hidden="true">
             <img src="./screenshots/card08-1.png" alt="" width="384" height="384" loading="lazy" />
             <img src="./screenshots/card08-2.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card08-3.png" alt="" width="384" height="384" loading="lazy" />
           </div>
-          <h3><span data-i="ko">화면 정지</span><span data-i="en">Screen freeze</span></h3>
+          <h3><span data-i="ko">간격 합산</span><span data-i="en">Gap sum</span></h3>
           <p>
-            <span data-i="ko">계속 갱신되는 화면을 정지한 상태로 측정, Ctrl+Alt+F로 정지/해제 전환</span>
-            <span data-i="en">Freeze a screen that keeps changing and measure it at rest, Ctrl+Alt+F toggles it</span>
+            <span data-i="ko">간격을 각각 클릭으로 합쳐 볼 수 있음</span>
+            <span data-i="en">Click gaps one by one to add them together</span>
           </p>
         </div>
         <div class="tile">
