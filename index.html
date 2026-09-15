@@ -44,6 +44,14 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth;background:var(--bg)}
+/* Where a header link lands a section's title: about 40 px under the sticky
+   header rather than the 7 px the section's own padding left once the header
+   covered its top (owner's capture, 2026-09-16). The padding is 20 px less on
+   a narrow screen, so the offset is 20 px more there. */
+html{scroll-padding-top:33px}
+@media (max-width:900px){
+  html{scroll-padding-top:53px}
+}
 body{
   background:linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 62%);
   min-height:100vh;
