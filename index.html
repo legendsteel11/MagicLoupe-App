@@ -144,6 +144,9 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
    ones instead of leaving that word alone below (owner, 2026-09-16). */
 .intro p{max-width:40em;margin:0 auto;color:#7892cd;font-size:15.5px;line-height:1.8;text-wrap:balance}
 .intro p + p{margin-top:12px}
+/* The about section's first sentence, bold and in the title's quiet grey
+   rather than the blue under it (owner, 2026-09-16). */
+.intro p.lead{color:#a3a8b4;font-weight:600}
 /* The three uses, as a list that stands in the middle of the section and reads
    from its own left edge: centred lines of different lengths lose their bullets. */
 .intro ul{
@@ -374,9 +377,9 @@ footer{
   <section id="about" class="intro">
     <div class="wrap">
       <h2><span data-i="ko">매직 루페는</span><span data-i="en">MagicLoupe is</span></h2>
-      <p>
-        <span data-i="ko">Windows 화면의 모든 것을 정밀하게 확인하고 측정해 주는 생산성 도구입니다.</span>
-        <span data-i="en">A productivity tool that inspects and measures everything on your Windows screen, precisely.</span>
+      <p class="lead">
+        <span data-i="ko">Windows 화면의 모든 것을 정밀하게 확인하고 실시간으로 측정 및 캡처해 주는 생산성 도구입니다.</span>
+        <span data-i="en">A productivity tool that inspects everything on your Windows screen precisely, and measures and captures it in real time.</span>
       </p>
       <ul>
         <li>
