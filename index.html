@@ -168,6 +168,55 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
 /* The same list for how it works, straight under its title. */
 .tech ul{margin-top:0}
 
+/* A band of light running along the technology section's grid, down the
+   columns and the rows at once (owner, 2026-09-16). Each band is seven of the
+   grid's own lines, brightest in the middle and fading to either side, and it
+   moves one cell at a time: two copies a cell apart trade places by opacity,
+   so every line brightens and dims smoothly while the band only ever sits on
+   the grid. Transform and opacity alone, so the compositor runs it and nothing
+   is repainted; the script sizes the travel and stops it off screen. */
+#tech{position:relative;overflow:hidden}
+#tech > .wrap{position:relative}
+.scan{position:absolute;inset:0;pointer-events:none}
+.scan i{position:absolute;animation-play-state:paused}
+#tech.run .scan i{animation-play-state:running}
+.scan-v{
+  top:0;bottom:0;left:-224px;width:224px;
+  background:
+    linear-gradient(rgba(255,255,255,.033),rgba(255,255,255,.033)) 0 0/1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.088),rgba(255,255,255,.088)) 32px 0/1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.154),rgba(255,255,255,.154)) 64px 0/1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.22),rgba(255,255,255,.22)) 96px 0/1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.154),rgba(255,255,255,.154)) 128px 0/1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.088),rgba(255,255,255,.088)) 160px 0/1px 100% no-repeat,
+    linear-gradient(rgba(255,255,255,.033),rgba(255,255,255,.033)) 192px 0/1px 100% no-repeat;
+  animation:scan-x calc(var(--cols, 60) * .15s) steps(var(--cols, 60)) infinite,
+            scan-out .15s linear infinite;
+}
+.scan-h{
+  left:0;right:0;top:-224px;height:224px;
+  background:
+    linear-gradient(rgba(255,255,255,.033),rgba(255,255,255,.033)) 0 0/100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.088),rgba(255,255,255,.088)) 0 32px/100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.154),rgba(255,255,255,.154)) 0 64px/100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.22),rgba(255,255,255,.22)) 0 96px/100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.154),rgba(255,255,255,.154)) 0 128px/100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.088),rgba(255,255,255,.088)) 0 160px/100% 1px no-repeat,
+    linear-gradient(rgba(255,255,255,.033),rgba(255,255,255,.033)) 0 192px/100% 1px no-repeat;
+  animation:scan-y calc(var(--rows, 30) * .15s) steps(var(--rows, 30)) infinite,
+            scan-out .15s linear infinite;
+}
+/* The copy one cell ahead, fading in while the one behind fades out. */
+.scan-v.b{left:-192px;animation-name:scan-x, scan-in}
+.scan-h.b{top:-192px;animation-name:scan-y, scan-in}
+@keyframes scan-x{to{transform:translateX(calc(var(--cols, 60) * 32px))}}
+@keyframes scan-y{to{transform:translateY(calc(var(--rows, 30) * 32px))}}
+@keyframes scan-out{from{opacity:1}to{opacity:0}}
+@keyframes scan-in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .scan{display:none}
+}
+
 /* Every feature with the app's own icon for it, in groups of a kind. Two
    columns wide, one on a phone. The groups fold only when the script has run,
    so the list is whole without it. */
@@ -512,6 +561,7 @@ footer{
   </section>
 
   <section id="tech" class="intro tech">
+    <div class="scan" aria-hidden="true"><i class="scan-v"></i><i class="scan-v b"></i><i class="scan-h"></i><i class="scan-h b"></i></div>
     <div class="wrap">
       <h2><span data-i="ko">적용 기술</span><span data-i="en">Technology</span></h2>
       <ul>
@@ -917,6 +967,29 @@ footer{
      locally. The queue shim lets an event fire before the script has loaded. -->
 <script>
 window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script>
+// The technology section's light bands: how many cells each has to cross -
+// the section, the band's own seven, and seven more as a pause off the far
+// edge - and running only while the section is on screen.
+(function () {
+  var s = document.getElementById('tech');
+  if (!s) return;
+  function size() {
+    s.style.setProperty('--cols', Math.ceil(s.clientWidth / 32) + 14);
+    s.style.setProperty('--rows', Math.ceil(s.clientHeight / 32) + 14);
+  }
+  size();
+  if ('ResizeObserver' in window) new ResizeObserver(size).observe(s);
+  else window.addEventListener('resize', size);
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      s.classList.toggle('run', entries[0].isIntersecting);
+    }).observe(s);
+  } else {
+    s.classList.add('run');
+  }
+})();
 </script>
 <script defer src="/_vercel/insights/script.js"></script>
 
