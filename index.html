@@ -241,17 +241,27 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
   padding:14px 18px;border:1px solid var(--line);border-radius:0;
   background:rgba(255,255,255,.02);color:#c9cbd3;
   font:inherit;font-size:15px;font-weight:600;letter-spacing:-.005em;text-align:left;
-  cursor:pointer;transition:border-color .2s ease-in-out;
+  cursor:pointer;transition:border-color .2s ease-in-out, background-color .2s ease-in-out;
 }
 .facc:hover{border-color:#5a5d68}
+/* An open group's heading on the grid sections' near-black ground, so the
+   groups that are open read apart from the folded ones (owner, 2026-09-16). */
+.fgroup:not(.shut) .facc{background:#08090b}
 .fchev{
   flex:0 0 auto;width:8px;height:8px;margin-top:-4px;
   border-right:1.5px solid var(--fg-dim);border-bottom:1.5px solid var(--fg-dim);
   transform:rotate(45deg);transition:transform .2s ease-in-out;
 }
 .fgroup.shut .fchev{margin-top:0;transform:rotate(-45deg)}
-.fgroup .fgrid{padding:4px 18px 10px}
+/* No rule under a group's last row: the group ends where its rows do, and the
+   space the rule and its gap took is taken back (owner, 2026-09-16). Two
+   cells make the last row on the two-column table, one on a phone. */
+.fgroup .fgrid{padding:4px 18px 2px}
 .fgroup.shut .fgrid{display:none}
+.fgrid .frow:last-child{border-bottom:0}
+@media (min-width:761px){
+  .fgrid .frow:nth-last-child(2):nth-child(odd){border-bottom:0}
+}
 
 /* Back to the top, since the page runs long. It comes in once the page has
    been scrolled a screen or so, and wears the header's glass. */
