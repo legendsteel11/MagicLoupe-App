@@ -1,0 +1,918 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="dark" />
+<meta name="theme-color" content="#121317" />
+<title>MagicLoupe — 화면을 확대하고 색과 간격을 읽습니다</title>
+<meta name="description" content="화면을 확대해서 보고, 픽셀 색을 추출하고, 요소 사이 간격을 픽셀 단위로 측정하는 Windows 확대 유틸. 무설치 단일 실행 파일." />
+<link rel="icon" type="image/png" href="./icon.png" />
+<link rel="canonical" href="https://magicloupe.vercel.app/" />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="MagicLoupe" />
+<meta property="og:url" content="https://magicloupe.vercel.app/" />
+<meta property="og:title" content="MagicLoupe — 화면을 확대하고 색과 간격을 읽습니다" />
+<meta property="og:description" content="화면을 확대해서 보고, 픽셀 색을 추출하고, 요소 사이 간격을 픽셀 단위로 측정하는 Windows 확대 유틸. 무설치 단일 실행 파일." />
+<meta property="og:image" content="https://magicloupe.vercel.app/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:locale" content="ko_KR" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<style>
+/* A dark ground, which is what the app is for: the page should not be the
+   brightest thing on the screen when someone is about to go and look at pixels,
+   and the loupe's own chrome is dark, so its pictures sit in the same light.
+   The header is a step up from the ground and nothing more. */
+:root{
+  color-scheme:dark;
+  --bg:#121317;
+  --bg-soft:#17181d;
+  --card:#1d1f25;
+  --line:#2c2e36;
+  --fg:#e8e9ee;
+  --fg-dim:#9a9ca7;
+  --accent:#ec407a;
+  --accent-dark:#f06292;   /* hover: lighter rather than darker on this ground */
+  /* The feature board's two cell tones, a few levels apart on purpose: enough
+     to tell neighbouring cells apart, not enough to read as a pattern. */
+  --tile-a:#1c1e23;
+  --tile-b:#191a1f;
+  --tile:#0e0f12;          /* feature cards: one tone, a step under the page */
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;background:var(--bg)}
+body{
+  background:linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 62%);
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  color:var(--fg);
+  font-family:'Segoe UI','Malgun Gothic',system-ui,-apple-system,sans-serif;
+  font-size:15px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+  /* Korean breaks between words, not inside one: left to the default a card
+     ended a line on "확대합니" and began the next on "다". English is unaffected. */
+  word-break:keep-all;
+  overflow-wrap:anywhere;
+}
+a{color:inherit}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+html[lang="ko"] [data-i="en"],
+html[lang="en"] [data-i="ko"]{display:none}
+
+header{
+  background:rgba(0,0,0,.5);
+  -webkit-backdrop-filter:blur(4px);
+  backdrop-filter:blur(4px);
+  border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:10;
+}
+.bar{display:flex;align-items:center;gap:10px;height:56px}
+.bar img{width:22px;height:22px}
+.bar b{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.bar nav{margin-left:auto;display:flex;align-items:center;gap:18px}
+.bar nav a{color:var(--fg-dim);text-decoration:none;font-size:13.5px}
+.bar nav a:hover{color:var(--fg)}
+#lang{
+  border:1px solid var(--line);background:transparent;color:var(--fg-dim);
+  border-radius:6px;padding:4px 10px;font:inherit;font-size:12.5px;cursor:pointer;
+}
+#lang:hover{color:var(--fg);border-color:var(--fg-dim)}
+
+/* A soft light falling from under the header onto the hero. One gradient on the
+   full width of the page, painted behind everything and taking no clicks; it
+   has faded out well before the first section. */
+main{position:relative}
+main::before{
+  content:'';position:absolute;left:0;right:0;top:0;height:720px;
+  background:radial-gradient(ellipse 58% 100% at 50% 0,
+             rgba(255,255,255,.085) 0%, rgba(255,255,255,.03) 45%, transparent 75%);
+  pointer-events:none;
+}
+
+/* One centred column: the name first, the picture last. */
+.hero{
+  position:relative;
+  display:flex;flex-direction:column;align-items:center;text-align:center;
+  /* Top and bottom only: the sides are .wrap's gutter, and a shorthand here
+     zeroed them, which put the picture against both edges of a phone. */
+  padding-block:72px 80px;
+}
+/* No radius on either icon: the drawing carries its own transparent corners. */
+.logo{width:70px;height:70px;display:block;margin-bottom:22px}
+.hero p.kicker{color:var(--fg-dim);font-weight:600;font-size:14px;margin-bottom:4px}
+.hero h1{
+  font-size:36px;line-height:1.3;font-weight:600;letter-spacing:-.02em;
+  margin-bottom:44px;
+}
+/* The two capitals in the logo's own colours: the blue ring and the yellow L. */
+.hero h1 .c-m{color:#0eb5ff}
+.hero h1 .c-l{color:#fcc302}
+
+/* The captures and nothing around them, fading from one to the next.
+
+   Each is shown at its own pixel size, 512 x 512: scaling a picture of a user
+   interface softens its text, and these are pictures of text being measured. A
+   viewport narrower than that shrinks it, since there is no padding left to
+   give up first. The ratio keeps the box standing while every shot is out of
+   the flow. */
+.shots{
+  position:relative;width:512px;max-width:100%;aspect-ratio:1 / 1;
+}
+.shots img{
+  position:absolute;inset:0;width:100%;height:100%;
+  opacity:0;transition:opacity .9s ease-in-out;
+}
+.shots img.on{opacity:1}
+/* Someone who has asked for less movement gets the first one and no fade. */
+@media (prefers-reduced-motion:reduce){
+  .shots img{transition:none}
+}
+
+section{border-top:1px solid var(--line);padding:55px 0 64px;text-align:center}
+section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;margin-bottom:33px}
+
+.intro p{max-width:40em;margin:0 auto;color:var(--fg-dim);font-size:15.5px;line-height:1.8}
+.intro p + p{margin-top:12px}
+/* The three uses, as a list that stands in the middle of the section and reads
+   from its own left edge: centred lines of different lengths lose their bullets. */
+.intro ul{
+  display:inline-block;max-width:40em;margin:14px auto 0;padding-left:1.3em;
+  text-align:left;color:var(--fg-dim);font-size:15.5px;line-height:1.8;
+}
+.intro li + li{margin-top:4px}
+/* The about, technology and download sections on a near-black ground with a
+   faint 32 px grid, the loupe's own grid read as a surface (2026-09-15). One
+   pixel lines, let through at a few per cent so they are texture rather than
+   lines. */
+#about, #tech, #download{
+  background-color:#08090b;
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,.045) 1px, transparent 1px);
+  background-size:32px 32px;
+}
+/* The same list for how it works, straight under its title. */
+.tech ul{margin-top:0}
+
+/* Every feature with the app's own icon for it, in groups of a kind. Two
+   columns wide, one on a phone. The groups fold only when the script has run,
+   so the list is whole without it. */
+.ftable{max-width:1000px;margin:8px auto 0;text-align:left}
+/* Each group is an accordion: a square button with no rounding over its rows.
+   The script folds every group but the first; without it all stay open. */
+.fgroup + .fgroup{margin-top:10px}
+.fgroup h3{margin:0}
+.facc{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;
+  padding:14px 18px;border:1px solid var(--line);border-radius:0;
+  background:rgba(255,255,255,.02);color:#c9cbd3;
+  font:inherit;font-size:15px;font-weight:600;letter-spacing:-.005em;text-align:left;
+  cursor:pointer;transition:border-color .2s ease-in-out;
+}
+.facc:hover{border-color:#5a5d68}
+.fchev{
+  flex:0 0 auto;width:8px;height:8px;margin-top:-4px;
+  border-right:1.5px solid var(--fg-dim);border-bottom:1.5px solid var(--fg-dim);
+  transform:rotate(45deg);transition:transform .2s ease-in-out;
+}
+.fgroup.shut .fchev{margin-top:0;transform:rotate(-45deg)}
+.fgroup .fgrid{padding:4px 18px 10px}
+.fgroup.shut .fgrid{display:none}
+
+/* Back to the top, since the page runs long. It comes in once the page has
+   been scrolled a screen or so, and wears the header's glass. */
+.totop{
+  display:flex;position:fixed;right:24px;bottom:24px;z-index:20;
+  width:44px;height:44px;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:0;
+  background:rgba(0,0,0,.5);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
+  color:var(--fg);cursor:pointer;
+  opacity:0;visibility:hidden;transition:opacity .2s ease-in-out, visibility .2s;
+}
+.totop.show{opacity:1;visibility:visible}
+.totop::before{
+  content:"";width:10px;height:10px;margin-top:5px;
+  border-left:1.5px solid currentColor;border-top:1.5px solid currentColor;
+  transform:rotate(45deg);
+}
+.totop .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:32px}
+.frow{display:flex;gap:14px;align-items:flex-start;padding:13px 4px;border-bottom:1px solid var(--line)}
+.frow .ic{flex:0 0 22px;width:22px;height:22px;margin-top:1px;fill:var(--fg-dim)}
+.frow b{display:block;font-size:14px;font-weight:600;color:#90929b;line-height:1.5}
+.frow .fd{display:block;margin-top:0;color:#787a83;font-size:13px;line-height:1.65}
+
+/* Nine features laid straight on the page, with no board round them and no
+   ground of their own (2026-09-15: the checkerboard went first, then the
+   board). Each screenshot's frame is what marks a card, and the space between
+   them is the gap alone. */
+.tiles{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:72px;
+  max-width:1000px;margin:8px auto 0;text-align:left;
+}
+.tile{padding:0}
+
+/* A square for each feature's screenshot, standing over its title. Empty it is
+   a frame and nothing else. */
+.shot{
+  display:block;width:100%;aspect-ratio:1 / 1;margin-bottom:13px;padding:0;
+  background:var(--bg);border:1px solid var(--line);border-radius:0;
+  box-shadow:0 4px 12px rgba(0,0,0,.22), 0 1px 3px rgba(0,0,0,.18);
+  overflow:hidden;font:inherit;color:inherit;
+}
+.shot{position:relative;transition:border-color .2s ease-in-out, box-shadow .2s ease-in-out}
+/* The frame comes forward while its card is pointed at, which is also when
+   its pictures play. */
+.tile:hover .shot{border-color:#5a5d68;box-shadow:0 6px 16px rgba(0,0,0,.32), 0 2px 4px rgba(0,0,0,.24)}
+/* Each picture at its own pixel size, cut to the square around its middle
+   rather than shrunk into it: shrinking softens the numbers the pictures are
+   there to show. Several are stacked and take turns, a quick fade each,
+   stepped by the script below. */
+.shot img{
+  position:absolute;inset:0;display:block;width:100%;height:100%;
+  object-fit:none;object-position:50% 50%;
+  opacity:0;transition:opacity .25s ease-in-out;
+}
+.shot img.on, .shot img:only-child{opacity:1}
+/* Pictures taller than the square with what matters along their foot, such
+   as the loupe with its colour chips: the top is what gets cut, and at its own
+   pixel size the right-hand end too, since the chips start at the left. */
+/* The status line below the chips goes out of frame, and so does the loupe's
+   own pale border down the left edge. */
+.shot.bottom img{object-position:-2px calc(100% + 22px)}
+@media (prefers-reduced-motion:reduce){
+  .shot img{transition:none}
+}
+.tile h3{font-size:16px;font-weight:600;margin-bottom:4px;letter-spacing:-.005em;color:#b4b6be}
+.tile p{color:#83858f;font-size:14px;line-height:1.75}
+
+/* The download button carries the file's facts inside it: a name line, then
+   the version and size, then what it runs on. Grey rather than the accent. */
+.btn{
+  display:inline-flex;align-items:center;gap:14px;text-align:left;
+  background:#3a3c44;color:var(--fg);text-decoration:none;
+  padding:14px 30px 15px 22px;border-radius:5px;
+  transition:background-color .2s ease-in-out;
+}
+.btn-ic{flex:0 0 auto;width:28px;height:28px;fill:currentColor}
+.btn-text{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+.btn:hover{background:#464852}
+.btn-name{font-weight:600;font-size:16px}
+.btn-sub{font-size:12.5px;color:#a0a2ac;font-weight:400;white-space:nowrap}
+.meta{display:block;margin-top:14px;color:var(--fg-dim);font-size:13px}
+
+footer{
+  border-top:1px solid var(--line);padding:30px 0 44px;background:var(--bg-soft);
+  flex:1 0 auto;
+}
+.foot{display:flex;gap:44px;flex-wrap:wrap}
+.foot h4{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+         color:var(--fg-dim);margin-bottom:10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.foot a{color:var(--fg-dim);text-decoration:none;font-size:13.5px;display:block;line-height:1.9;
+        transition:color .2s ease-in-out}
+.foot a:hover{color:var(--fg)}
+.copy{margin-top:26px;color:var(--fg-dim);font-size:12.5px}
+/* The licence in the words the app's own About box uses. */
+.foot .lic{color:var(--fg-dim);font-size:13px;line-height:1.5;max-width:26em}
+.foot .lic + .lic{margin-top:6px}
+
+/* What the download is: its version and size under the button, and above it
+   the notes of the newest release once there has been more than one. Both are
+   filled from the public repository's releases; the version written here is
+   what shows when that cannot be read. */
+.notes{
+  max-width:40em;margin:0 auto 26px;padding:18px 22px;text-align:left;
+  background:var(--card);border:1px solid var(--line);border-radius:8px;
+  color:var(--fg-dim);font-size:14px;line-height:1.75;
+}
+.notes[hidden]{display:none}
+.notes h3{font-size:14.5px;font-weight:600;color:var(--fg);margin-bottom:6px}
+.notes ul{padding-left:1.2em}
+.notes p + p, .notes p + ul, .notes ul + p{margin-top:6px}
+
+@media (max-width:900px){
+  .hero{padding-block:40px 48px}
+  .hero h1{font-size:30px;margin-bottom:32px}
+  .bar nav a{display:none}
+  section{padding:35px 0 44px}
+}
+@media (max-width:760px){
+  .tiles{grid-template-columns:minmax(0,1fr)}
+  .fgrid{grid-template-columns:minmax(0,1fr)}
+  .totop{right:16px;bottom:16px}
+  .btn-sub{white-space:normal}
+}
+</style>
+<!-- Before the body is drawn, so the feature list folds on a phone without
+     first showing every row. -->
+<script>document.documentElement.className += ' js';</script>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <img src="./icon.png" alt="" />
+    <b>MagicLoupe</b>
+    <nav>
+      <a href="#about"><span data-i="ko">소개</span><span data-i="en">About</span></a>
+      <a href="#features"><span data-i="ko">주요 특징</span><span data-i="en">Key features</span></a>
+      <a href="#tech"><span data-i="ko">적용 기술</span><span data-i="en">Technology</span></a>
+      <a href="#download"><span data-i="ko">다운로드</span><span data-i="en">Download</span></a>
+      <button id="lang" type="button"></button>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <div class="wrap hero">
+    <img class="logo" src="./icon.png" alt="" />
+    <p class="kicker">
+      <span data-i="ko">Windows 화면 자동 측정 유틸리티 - 매직 루페</span>
+      <span data-i="en">Automatic screen measurement utility for Windows</span>
+    </p>
+    <h1>
+      <span data-i="ko"><span class="c-m">M</span>agic<span class="c-l">L</span>oupe</span>
+      <span data-i="en"><span class="c-m">M</span>agic<span class="c-l">L</span>oupe</span>
+    </h1>
+    <!-- One set for both languages. Nothing in them is a word: the bar is
+         icons, the reading line is numbers, and what they are showing is a
+         keypad. There is nothing here for a second set to translate. -->
+    <div class="shots" id="shots">
+      <img class="on" src="./screenshots/hero-sc-01.png" alt="MagicLoupe" width="512" height="512" />
+      <img src="./screenshots/hero-sc-02.png" alt="" width="512" height="512" />
+    </div>
+  </div>
+
+  <section id="about" class="intro">
+    <div class="wrap">
+      <h2><span data-i="ko">매직 루페는</span><span data-i="en">MagicLoupe is</span></h2>
+      <p>
+        <span data-i="ko">Windows 화면의 모든 것을 정밀하게 확인하고 측정해 주는 생산성 도구입니다.</span>
+        <span data-i="en">A productivity tool that inspects and measures everything on your Windows screen, precisely.</span>
+      </p>
+      <ul>
+        <li>
+          <span data-i="ko">웹/앱 UI 등 데스크톱 환경의 디자인에서 간격, 크기, 색상 검수</span>
+          <span data-i="en">Review gaps, sizes and colors in web and app UIs and other desktop designs</span>
+        </li>
+        <li>
+          <span data-i="ko">AI 대화에 측정된 화면을 바로 붙여 넣어 빠르고 정확한 피드백 전달 및 수정 요청</span>
+          <span data-i="en">Paste the measured screen straight into an AI chat for fast, precise feedback and change requests</span>
+        </li>
+        <li>
+          <span data-i="ko">다양한 편의 기능으로 개발/디자인 작업의 효율성 증대</span>
+          <span data-i="en">Work faster on development and design with a range of convenience features</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2><span data-i="ko">주요 특징</span><span data-i="en">Key features</span></h2>
+      <div class="tiles">
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card01-1.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card01-2.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">실시간 확대</span><span data-i="en">Live magnification</span></h3>
+          <p>
+            <span data-i="ko">화면을 실시간으로 최대 24배까지 보간 없이 확대</span>
+            <span data-i="en">Magnifies the screen live, up to 24x, with no smoothing</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card02-1.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card02-2.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card02-3.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card02-4.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">실시간 자동 간격 측정</span><span data-i="en">Real-time automatic gap measurement</span></h3>
+          <p>
+            <span data-i="ko">렌즈 안 요소 사이의 간격을 자동으로 찾아 픽셀 단위로 표시</span>
+            <span data-i="en">Finds the gaps between elements in the lens and labels them in pixels</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card03-2.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card03-3.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card03-5.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card03-6.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">실시간 자동 크기 측정</span><span data-i="en">Real-time automatic size measurement</span></h3>
+          <p>
+            <span data-i="ko">십자선이 놓인 요소의 가로·세로 크기를 측정</span>
+            <span data-i="en">Measures the width and height of the element under the crosshair</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot bottom" aria-hidden="true">
+            <img src="./screenshots/card04-5.png" alt="" width="384" height="467" loading="lazy" />
+            <img src="./screenshots/card04-6.png" alt="" width="384" height="467" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">컬러 피커</span><span data-i="en">Color picker</span></h3>
+          <p>
+            <span data-i="ko">렌즈를 클릭해 색을 추출, RGB, #코드, 코드값 중 원하는 형식으로 클립보드에 복사</span>
+            <span data-i="en">Click the lens to pick a color, then copy it as RGB, a # code or the bare code</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card05-2.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card05-3.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card05-5.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card05-6.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">측정/제외 영역 지정 도구</span><span data-i="en">Measure and exclude areas</span></h3>
+          <p>
+            <span data-i="ko">Shift 드래그로 측정 범위를, Alt 드래그로 측정에서 제외할 영역을 지정</span>
+            <span data-i="en">Shift-drag to set the measuring area, Alt-drag to leave an area out</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card06-1.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card06-2.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">사용자 지정 마스크</span><span data-i="en">Custom masks</span></h3>
+          <p>
+            <span data-i="ko">원하는 형태로 마스크를 그리고 마스크 간의 간격 및 크기, 둘러싼 공간을 지정하고 측정</span>
+            <span data-i="en">Draw masks in any shape, then set and measure the gaps and sizes between them and the space around them</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card07-1.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card07-2.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">오버레이 필터</span><span data-i="en">Overlay filters</span></h3>
+          <p>
+            <span data-i="ko">그린, 레드, 모노, 다크, 라이트 필터를 적용, 복잡한 화면에서도 측정값을 쉽게 파악 가능</span>
+            <span data-i="en">Apply a green, red, mono, dark or light filter to read measurements easily on a busy screen</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card08-1.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card08-2.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">화면 정지</span><span data-i="en">Screen freeze</span></h3>
+          <p>
+            <span data-i="ko">계속 갱신되는 화면을 정지한 상태로 측정, Ctrl+Alt+F로 정지/해제 전환</span>
+            <span data-i="en">Freeze a screen that keeps changing and measure it at rest, Ctrl+Alt+F toggles it</span>
+          </p>
+        </div>
+        <div class="tile">
+          <div class="shot" aria-hidden="true">
+            <img src="./screenshots/card09-1.png" alt="" width="384" height="384" loading="lazy" />
+            <img src="./screenshots/card09-2.png" alt="" width="384" height="384" loading="lazy" />
+          </div>
+          <h3><span data-i="ko">눈금 자 가이드라인, 그리드</span><span data-i="en">Ruler guides and grid</span></h3>
+          <p>
+            <span data-i="ko">눈금 자에서 가이드라인을 꺼내 요소에 맞추고 사용, 그리드 표시 및 스냅/해제</span>
+            <span data-i="en">Pull guides out of the rulers and line them up with elements, show the grid and snap to it or not</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tech" class="intro tech">
+    <div class="wrap">
+      <h2><span data-i="ko">적용 기술</span><span data-i="en">Technology</span></h2>
+      <ul>
+        <li>
+          <span data-i="ko">투영 프로파일 기반 실시간 경계 검출 엔진, 매 프레임 가로·세로 전 구간 분석</span>
+          <span data-i="en">Real-time edge detection engine built on projection profiles, analysing every horizontal and vertical span each frame</span>
+        </li>
+        <li>
+          <span data-i="ko">평균 단차(Mean Step)와 픽셀 변화량(Edge Energy), 두 가지 경계 판정 알고리즘 탑재</span>
+          <span data-i="en">Two edge detection algorithms on board: Mean Step and Edge Energy</span>
+        </li>
+        <li>
+          <span data-i="ko">경계 단차 임계값(tm)과 활동량 임계값(ta)을 실측 화면 데이터셋 회귀 검증으로 최적화</span>
+          <span data-i="en">Edge step (tm) and activity (ta) thresholds tuned by regression testing against a dataset of real screens</span>
+        </li>
+        <li>
+          <span data-i="ko">OCR 텍스트 인식, 프레임 간 모션 감지, 텍스처 분석을 결합한 노이즈 영역 자동 제외</span>
+          <span data-i="en">Automatic noise exclusion combining OCR text recognition, inter-frame motion detection and texture analysis</span>
+        </li>
+        <li>
+          <span data-i="ko">vblank 동기 캡처 파이프라인, 타이머 없는 이벤트 구동 방식으로 대기 시 CPU 사용 없음</span>
+          <span data-i="en">vblank-synchronised capture pipeline, event-driven with no timers and no CPU use while idle</span>
+        </li>
+        <li>
+          <span data-i="ko">측정 오버레이와 분리된 원본 프레임 버퍼에서 픽셀 단위 색상 샘플링</span>
+          <span data-i="en">Pixel-exact color sampling from a raw frame buffer kept apart from the measurement overlay</span>
+        </li>
+        <li>
+          <span data-i="ko">Per-Monitor V2 DPI 대응, 물리 픽셀 좌표계 기반 다중 모니터 정밀 측정</span>
+          <span data-i="en">Per-Monitor V2 DPI aware, with precise multi-monitor measurement in physical pixel coordinates</span>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="details" class="details">
+    <div class="wrap">
+      <h2><span data-i="ko">세부 기능</span><span data-i="en">All features</span></h2>
+      <!-- Generated by scratch/nets/make_feature_rows.py: the groups between
+           the markers are rewritten on every run. -->
+      <div class="ftable" id="ftable">
+        <!-- rows:start -->
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">측정</span><span data-i="en">Measuring</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M330 -162Q298 -162 276 -184Q254 -206 254 -238V-777Q254 -789 263.5 -793.5Q273 -798 281 -789L377 -694L351 -667L383 -635L410 -661L502 -569L476 -543L508 -510L535 -536L630 -441L603 -415L636 -382L662 -408L756 -315L729 -289L762 -256L788 -282L882 -188Q890 -180 885.5 -171Q881 -162 870 -162ZM336 -222H742L314 -651V-245Q314 -235 320.5 -228.5Q327 -222 336 -222Z"/></svg><div><b><span data-i="ko">간격 측정</span><span data-i="en">Gap measurement</span></b><span class="fd"><span data-i="ko">렌즈 안 요소 사이의 간격을 자동으로 측정</span><span data-i="en">Measures the gaps between elements in the lens automatically</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M562 -322H734V-494H682V-374H562ZM226 -466H278V-586H398V-638H226ZM180 -212Q153 -212 134.5 -230.5Q116 -249 116 -276V-684Q116 -711 134.5 -729.5Q153 -748 180 -748H780Q807 -748 825.5 -729.5Q844 -711 844 -684V-276Q844 -249 825.5 -230.5Q807 -212 780 -212ZM180 -264H780Q784 -264 788 -268Q792 -272 792 -276V-684Q792 -688 788 -692Q784 -696 780 -696H180Q176 -696 172 -692Q168 -688 168 -684V-276Q168 -272 172 -268Q176 -264 180 -264ZM168 -264Q168 -264 168 -268Q168 -272 168 -276V-684Q168 -688 168 -692Q168 -696 168 -696Q168 -696 168 -692Q168 -688 168 -684V-276Q168 -272 168 -268Q168 -264 168 -264Z"/></svg><div><b><span data-i="ko">크기 측정</span><span data-i="en">Size measurement</span></b><span class="fd"><span data-i="ko">십자선이 위치한 요소의 크기 측정</span><span data-i="en">Measures the element under the crosshair</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M308 -308V-652H652V-308ZM360 -360H600V-600H360ZM221 -221V-164Q197 -164 180.5 -180.5Q164 -197 164 -221ZM164 -308V-364H221V-308ZM164 -452V-508H221V-452ZM164 -596V-652H221V-596ZM221 -739H164Q164 -763 180.5 -779.5Q197 -796 221 -796ZM308 -164V-221H364V-164ZM308 -739V-796H364V-739ZM452 -164V-221H508V-164ZM452 -739V-796H508V-739ZM596 -164V-221H652V-164ZM596 -739V-796H652V-739ZM739 -164V-221H796Q796 -197 779.5 -180.5Q763 -164 739 -164ZM739 -308V-364H796V-308ZM739 -452V-508H796V-452ZM739 -596V-652H796V-596ZM739 -739V-796Q763 -796 779.5 -779.5Q796 -763 796 -739Z"/></svg><div><b><span data-i="ko">크기 측정 강조</span><span data-i="en">Size emphasis</span></b><span class="fd"><span data-i="ko">크기 측정 상자가 잠시 유지되면 바깥 영역을 어둡게 표시</span><span data-i="en">Darkens the lens outside the size box once it holds still</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M205 -168 168 -205 295 -332H212V-384H384V-212H332V-295ZM755 -168 628 -295V-212H576V-384H748V-332H665L792 -205ZM212 -576V-628H295L168 -755L205 -792L332 -665V-748H384V-576ZM576 -576V-748H628V-665L755 -792L792 -755L665 -628H748V-576ZM480 -421Q456 -421 438.5 -438.5Q421 -456 421 -480.5Q421 -505 438.5 -522Q456 -539 480 -539Q504 -539 521.5 -521.5Q539 -504 539 -479.5Q539 -455 521.5 -438Q504 -421 480 -421Z"/></svg><div><b><span data-i="ko">측정 상자 자동 맞춤</span><span data-i="en">Auto-fit measure box</span></b><span class="fd"><span data-i="ko">측정 상자로 영역을 지정하면 안쪽 요소의 크기에 자동 맞춤</span><span data-i="en">Snaps the measure box you draw to the element inside</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -164 350 -294 387 -331 454 -264V-696L387 -629L350 -666L480 -796L610 -666L573 -629L506 -696V-264L573 -331L609 -294Z"/></svg><div><b><span data-i="ko">측정 축</span><span data-i="en">Measure axis</span></b><span class="fd"><span data-i="ko">가로, 세로, 전체 중 측정 방향 선택</span><span data-i="en">Measure horizontally, vertically or both</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M212 -454V-506H748V-454Z"/></svg><div><b><span data-i="ko">직선 측정 보조</span><span data-i="en">Line measuring aid</span></b><span class="fd"><span data-i="ko">십자선이 위치한 굵기 1~2px의 선을 측정</span><span data-i="en">Measures a line one or two pixels thick under the crosshair</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M140 -382Q132 -382 126 -387.5Q120 -393 120 -401Q120 -409 126 -415Q132 -421 140 -421Q148 -421 153.5 -415Q159 -409 159 -401Q159 -393 153.5 -387.5Q148 -382 140 -382ZM140 -539Q132 -539 126 -545Q120 -551 120 -559Q120 -567 126 -572.5Q132 -578 140 -578Q148 -578 153.5 -572.5Q159 -567 159 -559Q159 -551 153.5 -545Q148 -539 140 -539ZM244 -208Q228 -208 218 -218Q208 -228 208 -244Q208 -260 218 -270.5Q228 -281 244 -281Q260 -281 270.5 -270.5Q281 -260 281 -244Q281 -228 270.5 -218Q260 -208 244 -208ZM244 -365Q228 -365 218 -375Q208 -385 208 -401Q208 -417 218 -427.5Q228 -438 244 -438Q260 -438 270.5 -427.5Q281 -417 281 -401Q281 -385 270.5 -375Q260 -365 244 -365ZM244 -522Q228 -522 218 -532.5Q208 -543 208 -559Q208 -575 218 -585Q228 -595 244 -595Q260 -595 270.5 -585Q281 -575 281 -559Q281 -543 270.5 -532.5Q260 -522 244 -522ZM244 -679Q228 -679 218 -689.5Q208 -700 208 -716Q208 -732 218 -742Q228 -752 244 -752Q260 -752 270.5 -742Q281 -732 281 -716Q281 -700 270.5 -689.5Q260 -679 244 -679ZM401 -355Q382 -355 368.5 -368.5Q355 -382 355 -401Q355 -420 368.5 -434Q382 -448 401 -448Q420 -448 434 -434Q448 -420 448 -401Q448 -382 434 -368.5Q420 -355 401 -355ZM401 -512Q382 -512 368.5 -526Q355 -540 355 -559Q355 -578 368.5 -591.5Q382 -605 401 -605Q420 -605 434 -591.5Q448 -578 448 -559Q448 -540 434 -526Q420 -512 401 -512ZM401 -208Q385 -208 375 -218Q365 -228 365 -244Q365 -260 375 -270.5Q385 -281 401 -281Q417 -281 427.5 -270.5Q438 -260 438 -244Q438 -228 427.5 -218Q417 -208 401 -208ZM401 -679Q385 -679 375 -689.5Q365 -700 365 -716Q365 -732 375 -742Q385 -752 401 -752Q417 -752 427.5 -742Q438 -732 438 -716Q438 -700 427.5 -689.5Q417 -679 401 -679ZM401 -120Q393 -120 387.5 -126Q382 -132 382 -140Q382 -148 387.5 -153.5Q393 -159 401 -159Q409 -159 415 -153.5Q421 -148 421 -140Q421 -132 415 -126Q409 -120 401 -120ZM401 -801Q393 -801 387.5 -806.5Q382 -812 382 -820Q382 -828 387.5 -834Q393 -840 401 -840Q409 -840 415 -834Q421 -828 421 -820Q421 -812 415 -806.5Q409 -801 401 -801ZM559 -355Q540 -355 526 -368.5Q512 -382 512 -401Q512 -420 526 -434Q540 -448 559 -448Q578 -448 591.5 -434Q605 -420 605 -401Q605 -382 591.5 -368.5Q578 -355 559 -355ZM559 -512Q540 -512 526 -526Q512 -540 512 -559Q512 -578 526 -591.5Q540 -605 559 -605Q578 -605 591.5 -591.5Q605 -578 605 -559Q605 -540 591.5 -526Q578 -512 559 -512ZM559 -208Q543 -208 532.5 -218Q522 -228 522 -244Q522 -260 532.5 -270.5Q543 -281 559 -281Q575 -281 585 -270.5Q595 -260 595 -244Q595 -228 585 -218Q575 -208 559 -208ZM559 -679Q543 -679 532.5 -689.5Q522 -700 522 -716Q522 -732 532.5 -742Q543 -752 559 -752Q575 -752 585 -742Q595 -732 595 -716Q595 -700 585 -689.5Q575 -679 559 -679ZM559 -120Q551 -120 545 -126Q539 -132 539 -140Q539 -148 545 -153.5Q551 -159 559 -159Q567 -159 572.5 -153.5Q578 -148 578 -140Q578 -132 572.5 -126Q567 -120 559 -120ZM559 -801Q551 -801 545 -806.5Q539 -812 539 -820Q539 -828 545 -834Q551 -840 559 -840Q567 -840 572.5 -834Q578 -828 578 -820Q578 -812 572.5 -806.5Q567 -801 559 -801ZM716 -208Q700 -208 689.5 -218Q679 -228 679 -244Q679 -260 689.5 -270.5Q700 -281 716 -281Q732 -281 742 -270.5Q752 -260 752 -244Q752 -228 742 -218Q732 -208 716 -208ZM716 -365Q700 -365 689.5 -375Q679 -385 679 -401Q679 -417 689.5 -427.5Q700 -438 716 -438Q732 -438 742 -427.5Q752 -417 752 -401Q752 -385 742 -375Q732 -365 716 -365ZM716 -522Q700 -522 689.5 -532.5Q679 -543 679 -559Q679 -575 689.5 -585Q700 -595 716 -595Q732 -595 742 -585Q752 -575 752 -559Q752 -543 742 -532.5Q732 -522 716 -522ZM716 -679Q700 -679 689.5 -689.5Q679 -700 679 -716Q679 -732 689.5 -742Q700 -752 716 -752Q732 -752 742 -742Q752 -732 752 -716Q752 -700 742 -689.5Q732 -679 716 -679ZM820 -382Q812 -382 806.5 -387.5Q801 -393 801 -401Q801 -409 806.5 -415Q812 -421 820 -421Q828 -421 834 -415Q840 -409 840 -401Q840 -393 834 -387.5Q828 -382 820 -382ZM820 -539Q812 -539 806.5 -545Q801 -551 801 -559Q801 -567 806.5 -572.5Q812 -578 820 -578Q828 -578 834 -572.5Q840 -567 840 -559Q840 -551 834 -545Q828 -539 820 -539Z"/></svg><div><b><span data-i="ko">안티앨리어싱 무시</span><span data-i="en">Ignore antialiasing</span></b><span class="fd"><span data-i="ko">간격 양 끝의 번진 픽셀을 건너뛰고 측정</span><span data-i="en">Measures past the blurred pixels at each end of a gap</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M450 -212V-687H260V-748H700V-687H511V-212Z"/></svg><div><b><span data-i="ko">문자 측정 제외</span><span data-i="en">Exclude text</span></b><span class="fd"><span data-i="ko">문자 인식(OCR)으로 글자 영역을 찾아 측정에서 제외</span><span data-i="en">Finds text with character recognition (OCR) and leaves it out</span></span></div></div>
+          </div>
+        </div>
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">표시</span><span data-i="en">Display</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -418Q454 -418 436 -436Q418 -454 418 -480Q418 -506 436 -524Q454 -542 480 -542Q506 -542 524 -524Q542 -506 542 -480Q542 -454 524 -436Q506 -418 480 -418ZM454 -624V-844H506V-624ZM454 -116V-336H506V-116ZM624 -454V-506H844V-454ZM116 -454V-506H336V-454Z"/></svg><div><b><span data-i="ko">현재 위치만 표시</span><span data-i="en">Current position only</span></b><span class="fd"><span data-i="ko">십자선이 있는 구간의 선과 측정값만 표시</span><span data-i="en">Shows only the line and number for the span under the crosshair</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M164 -164V-221H221V-164ZM164 -308V-364H221V-308ZM164 -596V-652H221V-596ZM164 -739V-796H221V-739ZM308 -164V-221H364V-164ZM308 -739V-796H364V-739ZM596 -164V-221H652V-164ZM739 -164V-221H796V-164ZM739 -308V-364H796V-308ZM739 -596V-652H796V-596ZM739 -739V-796H796V-739ZM596 -739V-796H652V-739ZM454 -164V-454H164V-506H454V-796H506V-506H796V-454H506V-164Z"/></svg><div><b><span data-i="ko">전체 십자선</span><span data-i="en">Full crosshair</span></b><span class="fd"><span data-i="ko">십자선을 렌즈 전체로 확장</span><span data-i="en">Extends the crosshair across the whole lens</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M454 -298H506V-454H662V-506H506V-662H454V-506H298V-454H454ZM228 -164Q201 -164 182.5 -182.5Q164 -201 164 -228V-732Q164 -759 182.5 -777.5Q201 -796 228 -796H732Q759 -796 777.5 -777.5Q796 -759 796 -732V-228Q796 -201 777.5 -182.5Q759 -164 732 -164ZM228 -216H732Q736 -216 740 -220Q744 -224 744 -228V-732Q744 -736 740 -740Q736 -744 732 -744H228Q224 -744 220 -740Q216 -736 216 -732V-228Q216 -224 220 -220Q224 -216 228 -216ZM216 -744Q216 -744 216 -740.5Q216 -737 216 -732V-228Q216 -223 216 -219.5Q216 -216 216 -216Q216 -216 216 -219.5Q216 -223 216 -228V-732Q216 -737 216 -740.5Q216 -744 216 -744Z"/></svg><div><b><span data-i="ko">십자선 모양</span><span data-i="en">Crosshair shape</span></b><span class="fd"><span data-i="ko">기본, 조합, 대각선 중 십자선 모양 선택</span><span data-i="en">Plain, combined or diagonal crosshair</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M180 -260Q153 -260 134.5 -278.5Q116 -297 116 -324V-636Q116 -663 134.5 -681.5Q153 -700 180 -700H780Q807 -700 825.5 -681.5Q844 -663 844 -636V-324Q844 -297 825.5 -278.5Q807 -260 780 -260ZM180 -312H780Q784 -312 788 -316Q792 -320 792 -324V-636Q792 -640 788 -644Q784 -648 780 -648H662V-495H610V-648H506V-495H454V-648H350V-495H298V-648H180Q176 -648 172 -644Q168 -640 168 -636V-324Q168 -320 172 -316Q176 -312 180 -312ZM298 -495H350ZM454 -495H506ZM610 -495H662ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">눈금 자 표시</span><span data-i="en">Rulers</span></b><span class="fd"><span data-i="ko">렌즈 가장자리에 데스크톱 좌표 눈금 자 표시</span><span data-i="en">Shows rulers in desktop coordinates along the lens edges</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M116 -116V-168H844V-116ZM442 -260V-792H518V-260Z"/></svg><div><b><span data-i="ko">방향 구분 강조</span><span data-i="en">Axis direction marks</span></b><span class="fd"><span data-i="ko">가로 측정은 위쪽 변, 세로 측정은 왼쪽 변을 강조</span><span data-i="en">Marks horizontal measurements along the top edge and vertical ones along the left</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -418Q454 -418 436 -436Q418 -454 418 -480Q418 -506 436 -524Q454 -542 480 -542Q506 -542 524 -524Q542 -506 542 -480Q542 -454 524 -436Q506 -418 480 -418ZM454 -624V-844H506V-624ZM454 -116V-336H506V-116ZM624 -454V-506H844V-454ZM116 -454V-506H336V-454Z"/></svg><div><b><span data-i="ko">측정 표시를 점으로</span><span data-i="en">Dotted marks</span></b><span class="fd"><span data-i="ko">경계 표시를 선 대신 점으로 표시</span><span data-i="en">Draws edge marks as dots instead of lines</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480.5 -116Q405 -116 338.5 -144.5Q272 -173 222.5 -222.5Q173 -272 144.5 -338.5Q116 -405 116 -480.5Q116 -556 144.5 -622Q173 -688 222.5 -737.5Q272 -787 338.5 -815.5Q405 -844 480.5 -844Q556 -844 622 -815.5Q688 -787 737.5 -737.5Q787 -688 815.5 -622Q844 -556 844 -480.5Q844 -405 815.5 -338.5Q787 -272 737.5 -222.5Q688 -173 622 -144.5Q556 -116 480.5 -116ZM506 -169Q625 -179 708.5 -267Q792 -355 792 -480Q792 -605 709 -692.5Q626 -780 506 -791Z"/></svg><div><b><span data-i="ko">측정 표시 단색</span><span data-i="en">Monochrome marks</span></b><span class="fd"><span data-i="ko">간격, 크기 측정 표시를 배경 밝기에 따라 달라지는 회색으로 표시</span><span data-i="en">Draws gap and size marks in a grey that follows the background</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M287 -210 317 -330H174L187 -382H330L372 -554H218L231 -606H385L421 -750H473L437 -606H586L622 -750H673L637 -606H786L773 -554H624L582 -382H742L729 -330H569L539 -210H487L517 -330H368L338 -210ZM381 -382H530L573 -554H424Z"/></svg><div><b><span data-i="ko">px 단위 표기</span><span data-i="en">px units</span></b><span class="fd"><span data-i="ko">측정값 뒤에 px 단위 표시</span><span data-i="en">Adds px after each measurement</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M68 -302V-658H283V-302ZM372 -302V-658H588V-302ZM677 -302V-658H892V-302ZM120 -354H231V-606H120ZM732 -354H840V-606H732Z"/></svg><div><b><span data-i="ko">소수 라벨 강조</span><span data-i="en">Highlight the odd value</span></b><span class="fd"><span data-i="ko">가장 드물게 나온 값을 강조, 비활성화 시 가장 많이 나온 값 강조</span><span data-i="en">Highlights the least common value, or the most repeated one when off</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M164 -164V-796H221V-164ZM739 -164V-796H796V-164ZM308 -452V-508H364V-452ZM452 -452V-508H508V-452ZM596 -452V-508H652V-452Z"/></svg><div><b><span data-i="ko">경계 표시 길이</span><span data-i="en">Edge mark length</span></b><span class="fd"><span data-i="ko">경계 표시선의 길이 설정</span><span data-i="en">Sets how long the edge marks are</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M228 -308Q201 -308 182.5 -326.5Q164 -345 164 -372V-588Q164 -615 182.5 -633.5Q201 -652 228 -652H732Q759 -652 777.5 -633.5Q796 -615 796 -588V-372Q796 -345 777.5 -326.5Q759 -308 732 -308ZM228 -360H732Q736 -360 740 -364Q744 -368 744 -372V-588Q744 -592 740 -596Q736 -600 732 -600H228Q224 -600 220 -596Q216 -592 216 -588V-372Q216 -368 220 -364Q224 -360 228 -360ZM216 -360Q216 -360 216 -364Q216 -368 216 -372V-588Q216 -592 216 -596Q216 -600 216 -600Q216 -600 216 -596Q216 -592 216 -588V-372Q216 -368 216 -364Q216 -360 216 -360Z"/></svg><div><b><span data-i="ko">라벨 최소 표시 크기</span><span data-i="en">Smallest label</span></b><span class="fd"><span data-i="ko">렌즈에 확대되어 보이는 길이가 이 값보다 짧은 구간에는 측정값을 표시하지 않음</span><span data-i="en">Spans shorter than this as magnified on the lens get no number</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M593 -212V-687H402V-748H844V-687H654V-212ZM235 -212V-497H116V-558H415V-497H296V-212Z"/></svg><div><b><span data-i="ko">폰트 크기</span><span data-i="en">Font size</span></b><span class="fd"><span data-i="ko">측정값 숫자의 글자 크기 설정</span><span data-i="en">Sets the size of the measurement numbers</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M180 -188Q153 -188 134.5 -206Q116 -224 116 -252V-707Q116 -734 134.5 -753Q153 -772 180 -772H780Q807 -772 825.5 -753Q844 -734 844 -707V-252Q844 -224 825.5 -206Q807 -188 780 -188ZM680 -595H792Q792 -595 792 -595Q792 -595 792 -595V-708Q792 -713 788.5 -716.5Q785 -720 780 -720H680Q680 -720 680 -720Q680 -720 680 -720V-595Q680 -595 680 -595Q680 -595 680 -595ZM680 -417H792Q792 -417 792 -417Q792 -417 792 -417V-543Q792 -543 792 -543Q792 -543 792 -543H680Q680 -543 680 -543Q680 -543 680 -543V-417Q680 -417 680 -417Q680 -417 680 -417ZM180 -240H628Q628 -240 628 -240Q628 -240 628 -240V-720Q628 -720 628 -720Q628 -720 628 -720H180Q175 -720 171.5 -716.5Q168 -713 168 -708V-252Q168 -247 171.5 -243.5Q175 -240 180 -240ZM680 -240H780Q785 -240 788.5 -243.5Q792 -247 792 -252V-365Q792 -365 792 -365Q792 -365 792 -365H680Q680 -365 680 -365Q680 -365 680 -365V-240Q680 -240 680 -240Q680 -240 680 -240Z"/></svg><div><b><span data-i="ko">렌즈 도구 표시</span><span data-i="en">Lens tools</span></b><span class="fd"><span data-i="ko">렌즈 우측 하단에 측정 상자, 제외 영역, 마스크, 캡처 도구를 표시</span><span data-i="en">Shows the measure box, exclude area, mask and capture tools at the lens corner</span></span></div></div>
+          </div>
+        </div>
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">그리드/마스크</span><span data-i="en">Grid and masks</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M228 -164Q201 -164 182.5 -182.5Q164 -201 164 -228V-732Q164 -759 182.5 -777.5Q201 -796 228 -796H732Q759 -796 777.5 -777.5Q796 -759 796 -732V-228Q796 -201 777.5 -182.5Q759 -164 732 -164ZM228 -216H357V-357H216V-228Q216 -223 219.5 -219.5Q223 -216 228 -216ZM409 -216H551V-357H409ZM603 -216H732Q737 -216 740.5 -219.5Q744 -223 744 -228V-357H603ZM216 -409H357V-551H216ZM409 -409H551V-551H409ZM603 -409H744V-551H603ZM216 -603H357V-744H228Q223 -744 219.5 -740.5Q216 -737 216 -732ZM409 -603H551V-744H409ZM603 -603H744V-732Q744 -737 740.5 -740.5Q737 -744 732 -744H603Z"/></svg><div><b><span data-i="ko">그리드</span><span data-i="en">Grid</span></b><span class="fd"><span data-i="ko">렌즈 또는 화면 기준으로 그리드 표시, 간격은 배율에 따라 자동 조정</span><span data-i="en">Shows a grid anchored to the lens or to the screen, spaced to suit the zoom</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M228 -212Q201 -212 182.5 -230.5Q164 -249 164 -276V-684Q164 -711 182.5 -729.5Q201 -748 228 -748H410V-696H228Q224 -696 220 -692Q216 -688 216 -684V-276Q216 -272 220 -268Q224 -264 228 -264H410V-212ZM490 -116V-844H542V-748H732Q759 -748 777.5 -729.5Q796 -711 796 -684V-276Q796 -249 777.5 -230.5Q759 -212 732 -212H542V-116ZM542 -264H732Q736 -264 740 -268Q744 -272 744 -276V-684Q744 -688 740 -692Q736 -696 732 -696H542ZM216 -264Q216 -264 216 -268Q216 -272 216 -276V-684Q216 -688 216 -692Q216 -696 216 -696ZM744 -264V-696Q744 -696 744 -692Q744 -688 744 -684V-276Q744 -272 744 -268Q744 -264 744 -264Z"/></svg><div><b><span data-i="ko">그리드에 스냅</span><span data-i="en">Snap to grid</span></b><span class="fd"><span data-i="ko">십자선 위치를 그리드에 스냅</span><span data-i="en">Snaps the crosshair to the grid</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -190 176 -429 217 -462 480 -257 743 -462 784 -429ZM480 -358 176 -596 480 -835 784 -596ZM480 -590ZM480 -424 699 -596 480 -768 261 -596Z"/></svg><div><b><span data-i="ko">마스크 색</span><span data-i="en">Mask color</span></b><span class="fd"><span data-i="ko">마스크를 칠할 색 선택, 컬러 피커로 추출한 색도 사용 가능</span><span data-i="en">Choose the mask fill color, including a color picked from the screen</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M200 -440Q200 -495 221 -544Q242 -593 278 -631L480 -836L683 -630Q718 -592 739 -543.5Q760 -495 760 -440Q760 -325 678.5 -244.5Q597 -164 480 -164Q363 -164 281.5 -244.5Q200 -325 200 -440ZM253 -432H707Q707 -480 693.5 -519.5Q680 -559 646 -594L480 -762L315 -595Q280 -560 266.5 -520Q253 -480 253 -432Z"/></svg><div><b><span data-i="ko">마스크 농도</span><span data-i="en">Mask opacity</span></b><span class="fd"><span data-i="ko">렌즈에 보이는 마스크 색의 농도 설정</span><span data-i="en">Sets how strongly the mask color shows on the lens</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M661 -264H852V-212H609ZM231 -212 127 -316Q108 -335 107.5 -360.5Q107 -386 127 -406L541 -820Q562 -840 587 -840Q612 -840 633 -820L808 -645Q827 -626 827.5 -600Q828 -574 808 -554L466 -212ZM445 -264 771 -590Q774 -593 774 -599Q774 -605 771 -608L595 -784Q592 -787 586.5 -787Q581 -787 578 -783L165 -370Q161 -366 161 -360.5Q161 -355 165 -352L253 -264ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">영역/마스크 전체 삭제</span><span data-i="en">Clear areas and masks</span></b><span class="fd"><span data-i="ko">그려 둔 측정 상자, 제외 영역, 마스크를 한 번에 삭제</span><span data-i="en">Clears every measure box, exclude area and mask at once</span></span></div></div>
+          </div>
+        </div>
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">루페/렌즈</span><span data-i="en">Loupe and lens</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M744 -602V-744H594V-796H796V-602ZM164 -164V-366H216V-216H358V-164ZM164 -452V-508H221V-452ZM164 -596V-652H221V-596ZM164 -739V-796H221V-739ZM308 -739V-796H364V-739ZM452 -164V-221H508V-164ZM452 -739V-796H508V-739ZM596 -164V-221H652V-164ZM739 -164V-221H796V-164ZM739 -308V-364H796V-308ZM739 -452V-508H796V-452Z"/></svg><div><b><span data-i="ko">렌즈 크기</span><span data-i="en">Lens size</span></b><span class="fd"><span data-i="ko">렌즈 크기를 256~768px 사이에서 64px 단위로 조정</span><span data-i="en">Sizes the lens from 256 to 768 px in steps of 64</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M180 -308Q153 -308 134.5 -326.5Q116 -345 116 -372V-588Q116 -615 134.5 -633.5Q153 -652 180 -652H780Q807 -652 825.5 -633.5Q844 -615 844 -588V-372Q844 -345 825.5 -326.5Q807 -308 780 -308ZM180 -360H780Q785 -360 788.5 -363.5Q792 -367 792 -372V-588Q792 -593 788.5 -596.5Q785 -600 780 -600H180Q175 -600 171.5 -596.5Q168 -593 168 -588V-372Q168 -367 171.5 -363.5Q175 -360 180 -360ZM168 -360Q168 -360 168 -363.5Q168 -367 168 -372V-588Q168 -593 168 -596.5Q168 -600 168 -600Q168 -600 168 -596.5Q168 -593 168 -588V-372Q168 -367 168 -363.5Q168 -360 168 -360Z"/></svg><div><b><span data-i="ko">루페 비율</span><span data-i="en">Loupe aspect ratio</span></b><span class="fd"><span data-i="ko">루페의 가로세로 비율 선택</span><span data-i="en">Choose the loupe window&#x27;s aspect ratio</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M201 -164Q187 -169 178 -178Q169 -187 164 -201L759 -796Q771 -791 781 -781.5Q791 -772 796 -759ZM164 -404V-479L481 -796H556ZM164 -692V-732Q164 -759 182.5 -777.5Q201 -796 228 -796H268ZM682 -164 796 -278V-228Q796 -201 777.5 -182.5Q759 -164 732 -164ZM404 -164 796 -556V-481L479 -164Z"/></svg><div><b><span data-i="ko">필터</span><span data-i="en">Filter</span></b><span class="fd"><span data-i="ko">렌즈에 그린, 레드, 모노, 다크, 라이트 색 필터 적용</span><span data-i="en">Applies a green, red, mono, dark or light filter to the lens</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M408 -408V-480H480V-408ZM336 -336V-408H408V-336ZM480 -336V-408H552V-336ZM552 -408V-480H624V-408ZM264 -408V-480H336V-408ZM228 -164Q200 -164 182 -184.5Q164 -205 164 -233V-727Q164 -755 184.5 -775.5Q205 -796 233 -796H727Q755 -796 775.5 -775.5Q796 -755 796 -727V-233Q796 -205 775.5 -184.5Q755 -164 727 -164ZM264 -216H336V-264H264ZM408 -216H480V-264H408ZM696 -216H744V-264H696ZM216 -264H264V-336H336V-264H408V-336H480V-264H552V-336H624V-264H696V-336H624V-408H696V-480H744V-732Q744 -736 740 -740Q736 -744 732 -744H228Q224 -744 220 -740Q216 -736 216 -732V-408H264V-336H216ZM228 -216H216Q216 -216 216 -219.5Q216 -223 216 -228V-732Q216 -736 216 -740Q216 -744 216 -744H228Q224 -744 220 -740Q216 -736 216 -732V-228Q216 -224 220 -220Q224 -216 228 -216ZM696 -408V-336H744V-408ZM552 -264V-216H624V-264Z"/></svg><div><b><span data-i="ko">필터 농도</span><span data-i="en">Filter strength</span></b><span class="fd"><span data-i="ko">색 필터의 적용 강도 설정</span><span data-i="en">Sets how strongly the color filter is applied</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -116Q368 -116 290 -194Q212 -272 212 -384V-574Q212 -686 290 -764Q368 -842 480 -842Q592 -842 670 -764Q748 -686 748 -574V-384Q748 -272 670 -194Q592 -116 480 -116ZM506 -598H694Q686 -674 633.5 -726.5Q581 -779 506 -788ZM266 -598H454V-788Q379 -780 326.5 -727Q274 -674 266 -598ZM480 -168Q570 -168 633 -231Q696 -294 696 -384V-546H264V-384Q264 -294 327 -231Q390 -168 480 -168ZM480 -542Q480 -542 480 -542Q480 -542 480 -542ZM506 -598Q506 -598 506 -598Q506 -598 506 -598ZM454 -598Q454 -598 454 -598Q454 -598 454 -598ZM480 -542Q480 -542 480 -542Q480 -542 480 -542Q480 -542 480 -542Q480 -542 480 -542Z"/></svg><div><b><span data-i="ko">커서 따라가기</span><span data-i="en">Follow cursor</span></b><span class="fd"><span data-i="ko">루페가 마우스 커서를 따라 이동</span><span data-i="en">The loupe follows the mouse cursor</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M197 -249Q163 -293 143 -340Q123 -387 118 -444H169Q174 -399 191.5 -359.5Q209 -320 235 -287ZM118 -516Q122 -573 142.5 -620Q163 -667 197 -711L235 -673Q209 -640 191.5 -600.5Q174 -561 169 -516ZM443 -118Q384 -124 337.5 -144Q291 -164 248 -199L286 -236Q319 -210 358.5 -192.5Q398 -175 443 -170ZM286 -724 249 -762Q292 -796 338.5 -816Q385 -836 443 -842V-790Q398 -785 359 -767.5Q320 -750 286 -724ZM394 -330V-630L630 -480ZM515 -118V-170Q632 -184 711.5 -271.5Q791 -359 791 -480Q791 -601 711.5 -688.5Q632 -776 515 -790V-842Q654 -829 748.5 -726Q843 -623 843 -480Q843 -337 748.5 -234Q654 -131 515 -118Z"/></svg><div><b><span data-i="ko">자동 감속</span><span data-i="en">Auto slow-down</span></b><span class="fd"><span data-i="ko">높은 배율에서 이동 속도 자동 감속</span><span data-i="en">Slows the loupe down at high zoom</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M527 -363Q547 -383 545.5 -410.5Q544 -438 521 -455Q447 -507 376 -554.5Q305 -602 234 -653Q284 -581 332 -509.5Q380 -438 434 -368Q451 -345 478 -343.5Q505 -342 527 -363ZM192 -212Q178 -212 166.5 -218.5Q155 -225 149 -237Q129 -270 122.5 -308Q116 -346 116 -385Q116 -439 131.5 -491.5Q147 -544 179 -588L211 -544Q189 -507 178.5 -466.5Q168 -426 168 -384Q168 -352 174.5 -322.5Q181 -293 192 -264H769Q780 -293 786 -322.5Q792 -352 792 -384Q792 -514 700.5 -605Q609 -696 479 -696Q446 -696 414 -690Q382 -684 353 -670L304 -704Q344 -725 388.5 -736.5Q433 -748 479 -748Q555 -748 621.5 -719.5Q688 -691 737 -642Q786 -593 815 -527Q844 -461 844 -386Q844 -347 837 -308.5Q830 -270 811 -239Q804 -226 792.5 -219Q781 -212 768 -212ZM483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Q483 -406 483 -406Z"/></svg><div><b><span data-i="ko">이동 감속 배율</span><span data-i="en">Slow-down amount</span></b><span class="fd"><span data-i="ko">자동 감속이 적용될 때 최고 배율에서 사용할 감속 정도</span><span data-i="en">How much the loupe slows down at maximum zoom</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M402 -259V-701H844V-259ZM454 -311H792V-649H454ZM259 -259V-316H316V-259ZM259 -644V-701H316V-644ZM116 -259V-316H173V-259ZM116 -452V-508H173V-452ZM116 -644V-701H173V-644ZM623 -480Z"/></svg><div><b><span data-i="ko">루페 이동 중 배율 유지</span><span data-i="en">Keep zoom while moving</span></b><span class="fd"><span data-i="ko">루페를 드래그로 옮기는 동안 현재 배율 유지</span><span data-i="en">Keeps the current zoom while the loupe is dragged</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -485Q507 -485 525.5 -504Q544 -523 544 -550Q544 -577 525.5 -595.5Q507 -614 480 -614Q453 -614 434.5 -595.5Q416 -577 416 -550Q416 -523 434.5 -504Q453 -485 480 -485ZM480 -184Q594 -285 658 -380Q722 -475 722 -547Q722 -652 653.5 -722Q585 -792 480 -792Q375 -792 306.5 -722Q238 -652 238 -547Q238 -475 302 -380Q366 -285 480 -184ZM480 -116Q333 -240 259.5 -348Q186 -456 186 -547Q186 -670 268 -757Q350 -844 480 -844Q609 -844 691.5 -757Q774 -670 774 -547Q774 -456 701 -348.5Q628 -241 480 -116ZM480 -550Q480 -550 480 -550Q480 -550 480 -550Q480 -550 480 -550Q480 -550 480 -550Q480 -550 480 -550Q480 -550 480 -550Q480 -550 480 -550Q480 -550 480 -550Z"/></svg><div><b><span data-i="ko">위치 저장</span><span data-i="en">Saved position</span></b><span class="fd"><span data-i="ko">현재 위치를 저장하고 클릭 한 번으로 저장한 위치로 이동</span><span data-i="en">Saves where the loupe is and takes it back there in one click</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -172 28 -624Q123 -710 240 -753Q357 -796 480 -796Q603 -796 720.5 -753Q838 -710 932 -624L894 -586Q810 -665 701.5 -704.5Q593 -744 480 -744Q378 -744 281.5 -712Q185 -680 106 -619L519 -211ZM857 -212 740 -329Q725 -319 707.5 -313.5Q690 -308 672 -308Q621 -308 584.5 -344.5Q548 -381 548 -432Q548 -483 584.5 -519.5Q621 -556 672 -556Q723 -556 759.5 -519.5Q796 -483 796 -432Q796 -414 791.5 -397Q787 -380 777 -366L894 -249ZM672 -360Q702 -360 723 -381Q744 -402 744 -432Q744 -462 723 -483Q702 -504 672 -504Q642 -504 621 -483Q600 -462 600 -432Q600 -402 621 -381Q642 -360 672 -360ZM480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Q480 -210 480 -210Z"/></svg><div><b><span data-i="ko">이동 중 측정</span><span data-i="en">Measuring on the move</span></b><span class="fd"><span data-i="ko">루페 이동 중 측정 방식 선택, 매 프레임, 성능, 안함</span><span data-i="en">How measuring runs while the loupe moves: every frame, performance or off</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M308 -164V-221H364V-164ZM452 -164V-221H508V-164ZM596 -164V-221H652V-164ZM739 -164V-221H796V-164ZM739 -308V-364H796V-308ZM739 -452V-508H796V-452ZM739 -596V-652H796V-596ZM164 -164V-796H796V-744H216V-164Z"/></svg><div><b><span data-i="ko">루페 테두리 강조</span><span data-i="en">Loupe border</span></b><span class="fd"><span data-i="ko">루페 테두리를 굵게 표시</span><span data-i="en">Draws a thicker loupe border</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M346 -346H614V-614H346ZM480 -116Q405 -116 338.5 -144.5Q272 -173 222.5 -222.5Q173 -272 144.5 -338.5Q116 -405 116 -480Q116 -556 144.5 -622Q173 -688 222.5 -737.5Q272 -787 338.5 -815.5Q405 -844 480 -844Q556 -844 622 -815.5Q688 -787 737.5 -737.5Q787 -688 815.5 -621.5Q844 -555 844 -480Q844 -405 815.5 -338.5Q787 -272 737.5 -222.5Q688 -173 621.5 -144.5Q555 -116 480 -116ZM480 -168Q610 -168 701 -259Q792 -350 792 -480Q792 -610 701 -701Q610 -792 480 -792Q350 -792 259 -701Q168 -610 168 -480Q168 -350 259 -259Q350 -168 480 -168ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">화면 정지</span><span data-i="en">Freeze screen</span></b><span class="fd"><span data-i="ko">화면을 정지한 상태로 측정</span><span data-i="en">Freezes the screen so you can measure it</span></span></div></div>
+          </div>
+        </div>
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">컬러/캡처</span><span data-i="en">Colors and capture</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M164 -164V-314L503 -653L441 -714L478 -751L558 -671L676 -789Q679 -792 684.5 -794Q690 -796 696 -796Q703 -796 709 -794.5Q715 -793 719 -788L787 -718Q791 -714 793 -708.5Q795 -703 795 -696Q795 -690 793 -684.5Q791 -679 788 -676L670 -558L750 -477L714 -440L651 -502L314 -164ZM216 -216H293L615 -539L540 -615L216 -293ZM629 -590 735 -697 697 -736 590 -630ZM629 -590 590 -630 629 -590Z"/></svg><div><b><span data-i="ko">컬러 피커</span><span data-i="en">Color picker</span></b><span class="fd"><span data-i="ko">렌즈를 클릭해 색을 추출, 필터와 관계없이 원본 색을 추출</span><span data-i="en">Click the lens to pick a color, always the original color whatever the filter</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M164 -164V-314L503 -653L441 -714L478 -751L558 -671L676 -789Q679 -792 684.5 -794Q690 -796 696 -796Q703 -796 709 -794.5Q715 -793 719 -788L787 -718Q791 -714 793 -708.5Q795 -703 795 -696Q795 -690 793 -684.5Q791 -679 788 -676L670 -558L750 -477L714 -440L651 -502L314 -164ZM216 -216H293L615 -539L540 -615L216 -293ZM629 -590 735 -697 697 -736 590 -630ZM629 -590 590 -630 629 -590Z"/></svg><div><b><span data-i="ko">컬러 피커 조작</span><span data-i="en">Color picker gesture</span></b><span class="fd"><span data-i="ko">렌즈 클릭 또는 Ctrl+클릭 중 색을 추출할 조작 선택</span><span data-i="en">Pick colors with a click or with Ctrl+click</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M324 -164Q298 -164 279 -183Q260 -202 260 -228V-696H212V-748H384V-791H576V-748H748V-696H700V-229Q700 -201 681.5 -182.5Q663 -164 636 -164ZM648 -696H312V-228Q312 -223 315.5 -219.5Q319 -216 324 -216H636Q640 -216 644 -220Q648 -224 648 -228ZM400 -288H452V-624H400ZM508 -288H560V-624H508ZM312 -696V-228Q312 -223 312 -219.5Q312 -216 312 -216Q312 -216 312 -219.5Q312 -223 312 -228Z"/></svg><div><b><span data-i="ko">컬러 전체 삭제</span><span data-i="en">Clear picked colors</span></b><span class="fd"><span data-i="ko">컬러 피커로 추출한 색을 전체 삭제</span><span data-i="en">Clears all the colors you have picked</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -279Q546 -279 589.5 -323.5Q633 -368 633 -432Q633 -495 589.5 -540Q546 -585 480 -585Q414 -585 370.5 -540Q327 -495 327 -432Q327 -368 370.5 -323.5Q414 -279 480 -279ZM480 -331Q436 -331 407.5 -360.5Q379 -390 379 -433Q379 -475 407.5 -504Q436 -533 480 -533Q524 -533 552.5 -504Q581 -475 581 -433Q581 -390 552.5 -360.5Q524 -331 480 -331ZM180 -164Q154 -164 135 -183Q116 -202 116 -228V-636Q116 -662 135 -681Q154 -700 180 -700H296L368 -796H592L664 -700H780Q807 -700 825.5 -681Q844 -662 844 -636V-228Q844 -202 825.5 -183Q807 -164 780 -164ZM180 -216H780Q785 -216 788.5 -219.5Q792 -223 792 -228V-636Q792 -641 788.5 -644.5Q785 -648 780 -648H637L564 -744H396L323 -648H180Q175 -648 171.5 -644.5Q168 -641 168 -636V-228Q168 -223 171.5 -219.5Q175 -216 180 -216ZM480 -433Q480 -433 480 -433Q480 -433 480 -433Q480 -433 480 -433Q480 -433 480 -433Q480 -433 480 -433Q480 -433 480 -433Q480 -433 480 -433Q480 -433 480 -433Z"/></svg><div><b><span data-i="ko">캡처</span><span data-i="en">Capture</span></b><span class="fd"><span data-i="ko">렌즈 화면을 측정 표시와 함께 이미지로 저장</span><span data-i="en">Saves the lens with its marks as an image</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M228 -164Q202 -164 183 -183Q164 -202 164 -228V-732Q164 -759 183 -777.5Q202 -796 228 -796H732Q759 -796 777.5 -777.5Q796 -759 796 -732V-228Q796 -202 777.5 -183Q759 -164 732 -164ZM216 -376H744V-732Q744 -736 740 -740Q736 -744 732 -744H228Q224 -744 220 -740Q216 -736 216 -732ZM216 -324V-228Q216 -224 220 -220Q224 -216 228 -216H732Q736 -216 740 -220Q744 -224 744 -228V-324ZM216 -300V-228Q216 -224 216 -220Q216 -216 216 -216Q216 -216 216 -220Q216 -224 216 -228Z"/></svg><div><b><span data-i="ko">캡처에 UI 포함</span><span data-i="en">Capture with UI</span></b><span class="fd"><span data-i="ko">캡처에 하단 UI 영역까지 포함</span><span data-i="en">Includes the bottom bar in captures</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M180 -212Q154 -212 135 -231Q116 -250 116 -276V-684Q116 -711 135 -729.5Q154 -748 180 -748H376L472 -652H780Q807 -652 825.5 -633.5Q844 -615 844 -588V-276Q844 -250 825.5 -231Q807 -212 780 -212ZM180 -264H780Q785 -264 788.5 -267.5Q792 -271 792 -276V-588Q792 -593 788.5 -596.5Q785 -600 780 -600H450L354 -696H180Q175 -696 171.5 -692.5Q168 -689 168 -684V-276Q168 -271 171.5 -267.5Q175 -264 180 -264ZM168 -264Q168 -264 168 -267.5Q168 -271 168 -276V-684Q168 -689 168 -692.5Q168 -696 168 -696V-600Q168 -600 168 -596.5Q168 -593 168 -588V-276Q168 -271 168 -267.5Q168 -264 168 -264Z"/></svg><div><b><span data-i="ko">캡처 폴더</span><span data-i="en">Capture folder</span></b><span class="fd"><span data-i="ko">캡처 파일을 저장할 폴더 선택</span><span data-i="en">Choose the folder where captures are saved</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M178 -212Q150 -212 133 -230Q116 -248 116 -274V-684Q116 -710 134 -729Q152 -748 180 -748H376L472 -652H781Q806 -652 821 -637Q836 -622 842 -600H451L355 -696H180Q175 -696 171.5 -692.5Q168 -689 168 -684V-276Q168 -272 170 -269.5Q172 -267 176 -265L251 -520H923L844 -256Q838 -236 827.5 -224Q817 -212 795 -212ZM230 -264H792L854 -468H290ZM230 -264 290 -468 230 -264ZM168 -600V-684Q168 -689 168 -692.5Q168 -696 168 -696V-600Z"/></svg><div><b><span data-i="ko">캡처 폴더 열기</span><span data-i="en">Open capture folder</span></b><span class="fd"><span data-i="ko">탐색기에서 캡처 폴더를 열고 마지막 캡처를 선택</span><span data-i="en">Opens the capture folder with the last capture selected</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M624 -438 575 -487Q579 -528 550.5 -554Q522 -580 487 -576L438 -625Q448 -628 458.5 -629.5Q469 -631 480 -631Q543 -631 587 -587Q631 -543 631 -480Q631 -469 629.5 -458Q628 -447 624 -438ZM756 -307 718 -344Q754 -372 783.5 -405.5Q813 -439 833 -480Q784 -581 688.5 -638.5Q593 -696 480 -696Q454 -696 429 -693Q404 -690 380 -683L337 -726Q372 -739 408 -743.5Q444 -748 480 -748Q613 -748 726.5 -676.5Q840 -605 890 -480Q869 -428 835 -385.5Q801 -343 756 -307ZM766 -119 643 -244Q609 -229 567.5 -220.5Q526 -212 480 -212Q347 -212 234 -283.5Q121 -355 70 -480Q93 -537 132 -584.5Q171 -632 220 -667L119 -767L156 -805L804 -156ZM257 -629Q219 -602 183.5 -564Q148 -526 127 -480Q176 -379 271.5 -321.5Q367 -264 480 -264Q513 -264 546 -269.5Q579 -275 603 -283L544 -342Q530 -336 513 -332.5Q496 -329 480 -329Q417 -329 373 -373Q329 -417 329 -480Q329 -495 333.5 -512.5Q338 -530 342 -544ZM528 -528Q528 -528 528 -528Q528 -528 528 -528Q528 -528 528 -528Q528 -528 528 -528Q528 -528 528 -528Q528 -528 528 -528ZM451 -441Q451 -441 451 -441Q451 -441 451 -441Q451 -441 451 -441Q451 -441 451 -441Q451 -441 451 -441Q451 -441 451 -441Z"/></svg><div><b><span data-i="ko">복사/캡처 시 최소화</span><span data-i="en">Minimize after copy</span></b><span class="fd"><span data-i="ko">값을 복사하거나 캡처한 뒤 루페를 자동으로 최소화</span><span data-i="en">Minimizes the loupe after you copy a value or take a capture</span></span></div></div>
+          </div>
+        </div>
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">조작</span><span data-i="en">Controls</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M454 -298H506V-454H662V-506H506V-662H454V-506H298V-454H454ZM492 -116Q415 -116 346.5 -144.5Q278 -173 227 -222Q176 -271 146 -337Q116 -403 116 -479Q116 -554 144.5 -621Q173 -688 222.5 -737Q272 -786 338.5 -815Q405 -844 480 -844Q557 -844 623 -814Q689 -784 738 -732.5Q787 -681 815.5 -612Q844 -543 844 -465V-180Q844 -154 825 -135Q806 -116 780 -116ZM480 -168Q610 -168 701 -259Q792 -350 792 -480Q792 -610 701 -701Q610 -792 480 -792Q350 -792 259 -701Q168 -610 168 -480Q168 -350 259 -259Q350 -168 480 -168ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">배율 변경</span><span data-i="en">Zoom</span></b><span class="fd"><span data-i="ko">휠로 배율 조정</span><span data-i="en">Wheel to zoom in and out</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M744 -602V-744H594V-796H796V-602ZM164 -164V-366H216V-216H358V-164ZM164 -452V-508H221V-452ZM164 -596V-652H221V-596ZM164 -739V-796H221V-739ZM308 -739V-796H364V-739ZM452 -164V-221H508V-164ZM452 -739V-796H508V-739ZM596 -164V-221H652V-164ZM739 -164V-221H796V-164ZM739 -308V-364H796V-308ZM739 -452V-508H796V-452Z"/></svg><div><b><span data-i="ko">렌즈 크기 변경</span><span data-i="en">Resize the lens</span></b><span class="fd"><span data-i="ko">Ctrl+휠로 렌즈 크기 조정, 창 모서리 드래그로 크기와 비율 조정</span><span data-i="en">Ctrl+wheel sizes the lens; dragging a window corner sets size and aspect ratio</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -116Q368 -116 290 -194Q212 -272 212 -384V-574Q212 -686 290 -764Q368 -842 480 -842Q592 -842 670 -764Q748 -686 748 -574V-384Q748 -272 670 -194Q592 -116 480 -116ZM506 -598H694Q686 -674 633.5 -726.5Q581 -779 506 -788ZM266 -598H454V-788Q379 -780 326.5 -727Q274 -674 266 -598ZM480 -168Q570 -168 633 -231Q696 -294 696 -384V-546H264V-384Q264 -294 327 -231Q390 -168 480 -168ZM480 -542Q480 -542 480 -542Q480 -542 480 -542ZM506 -598Q506 -598 506 -598Q506 -598 506 -598ZM454 -598Q454 -598 454 -598Q454 -598 454 -598ZM480 -542Q480 -542 480 -542Q480 -542 480 -542Q480 -542 480 -542Q480 -542 480 -542Z"/></svg><div><b><span data-i="ko">커서 따라가기 전환</span><span data-i="en">Toggle cursor following</span></b><span class="fd"><span data-i="ko">휠 클릭으로 루페 이동을 커서 이동으로 전환, Esc로 해제</span><span data-i="en">A wheel click makes the loupe follow the cursor; Esc lets it go</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M221 -221V-164Q197 -164 180.5 -180.5Q164 -197 164 -221ZM164 -308V-364H221V-308ZM164 -452V-508H221V-452ZM164 -596V-652H221V-596ZM221 -739H164Q164 -763 180.5 -779.5Q197 -796 221 -796ZM308 -164V-221H364V-164ZM308 -739V-796H364V-739ZM452 -164V-221H508V-164ZM452 -739V-796H508V-739ZM596 -164V-221H652V-164ZM596 -739V-796H652V-739ZM739 -221H796Q796 -197 779.5 -180.5Q763 -164 739 -164ZM739 -308V-364H796V-308ZM739 -452V-508H796V-452ZM739 -596V-652H796V-596ZM739 -739V-796Q763 -796 779.5 -779.5Q796 -763 796 -739Z"/></svg><div><b><span data-i="ko">측정 상자</span><span data-i="en">Measure box</span></b><span class="fd"><span data-i="ko">Shift 드래그로 측정 범위 직접 지정</span><span data-i="en">Shift-drag to set the measuring area yourself</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M501 -164 464 -201 593 -330 464 -459 501 -496 630 -367 759 -496 796 -459 667 -330 796 -201 759 -164 630 -293ZM308 -164V-221H364V-164ZM221 -739H164Q164 -763 180.5 -779.5Q197 -796 221 -796ZM308 -739V-796H364V-739ZM452 -739V-796H508V-739ZM596 -739V-796H652V-739ZM739 -739V-796Q763 -796 779.5 -779.5Q796 -763 796 -739ZM221 -221V-164Q197 -164 180.5 -180.5Q164 -197 164 -221ZM164 -308V-364H221V-308ZM164 -452V-508H221V-452ZM164 -596V-652H221V-596ZM739 -596V-652H796V-596Z"/></svg><div><b><span data-i="ko">제외 영역</span><span data-i="en">Exclude area</span></b><span class="fd"><span data-i="ko">Alt 드래그로 측정에서 제외할 영역 지정</span><span data-i="en">Alt-drag to leave an area out of measuring</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -190 176 -429 217 -462 480 -257 743 -462 784 -429ZM480 -358 176 -596 480 -835 784 -596ZM480 -590ZM480 -424 699 -596 480 -768 261 -596Z"/></svg><div><b><span data-i="ko">마스크</span><span data-i="en">Mask</span></b><span class="fd"><span data-i="ko">렌즈 도구에서 마스크를 선택하고 드래그, 마스크로 씌운 영역을 하나의 요소로 측정</span><span data-i="en">Pick the mask tool and drag; the masked area is measured as one element</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M440 -164V-520H796V-468H529L796 -201L759 -164L492 -431V-164ZM308 -164V-221H364V-164ZM221 -739H164Q164 -763 180.5 -779.5Q197 -796 221 -796ZM308 -739V-796H364V-739ZM452 -739V-796H508V-739ZM596 -739V-796H652V-739ZM739 -739V-796Q763 -796 779.5 -779.5Q796 -763 796 -739ZM221 -221V-164Q197 -164 180.5 -180.5Q164 -197 164 -221ZM164 -308V-364H221V-308ZM164 -452V-508H221V-452ZM164 -596V-652H221V-596ZM739 -596V-652H796V-596Z"/></svg><div><b><span data-i="ko">마스크 선택</span><span data-i="en">Select masks</span></b><span class="fd"><span data-i="ko">클릭으로 선택, Ctrl+클릭으로 여러 마스크를 묶어 함께 이동 및 복제</span><span data-i="en">Click to select, Ctrl+click to group masks and move or copy them together</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M516 -394H568V-526H700V-578H568V-710H516V-578H384V-526H516ZM314 -260Q287 -260 268.5 -278.5Q250 -297 250 -324V-780Q250 -807 268.5 -825.5Q287 -844 314 -844H770Q797 -844 815.5 -825.5Q834 -807 834 -780V-324Q834 -297 815.5 -278.5Q797 -260 770 -260ZM314 -312H770Q774 -312 778 -316Q782 -320 782 -324V-780Q782 -784 778 -788Q774 -792 770 -792H314Q310 -792 306 -788Q302 -784 302 -780V-324Q302 -320 306 -316Q310 -312 314 -312ZM190 -136Q163 -136 144.5 -154.5Q126 -173 126 -200V-708H178V-200Q178 -196 182 -192Q186 -188 190 -188H698V-136ZM302 -792Q302 -792 302 -788.5Q302 -785 302 -780V-324Q302 -319 302 -315.5Q302 -312 302 -312Q302 -312 302 -315.5Q302 -319 302 -324V-780Q302 -785 302 -788.5Q302 -792 302 -792Z"/></svg><div><b><span data-i="ko">마스크 복제</span><span data-i="en">Duplicate masks</span></b><span class="fd"><span data-i="ko">Alt 드래그로 선택한 마스크를 복제해 같은 간격으로 배열, 묶은 마스크는 함께 복제</span><span data-i="en">Alt-drag copies the selected mask to repeat it at an even spacing; grouped masks copy together</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M420 -116Q394 -116 375 -135Q356 -154 356 -180V-356H180Q154 -356 135 -375Q116 -394 116 -420V-780Q116 -806 135 -825Q154 -844 180 -844H540Q566 -844 585 -825Q604 -806 604 -780V-604H780Q806 -604 825 -585Q844 -566 844 -540V-180Q844 -154 825 -135Q806 -116 780 -116ZM420 -168H780Q785 -168 788.5 -171.5Q792 -175 792 -180V-540Q792 -545 788.5 -548.5Q785 -552 780 -552H552V-780Q552 -785 548.5 -788.5Q545 -792 540 -792H180Q175 -792 171.5 -788.5Q168 -785 168 -780V-420Q168 -415 171.5 -411.5Q175 -408 180 -408H408V-180Q408 -175 411.5 -171.5Q415 -168 420 -168ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">측정값 합치기/분리</span><span data-i="en">Merge measurements</span></b><span class="fd"><span data-i="ko">두 개 이상의 측정값 숫자를 클릭해 하나로 합치기</span><span data-i="en">Click two or more numbers to add them into one</span></span></div></div>
+          </div>
+        </div>
+        <div class="fgroup">
+          <h3><button type="button" class="facc" aria-expanded="true"><span><span data-i="ko">시스템</span><span data-i="en">System</span></span><span class="fchev" aria-hidden="true"></span></button></h3>
+          <div class="fgrid">
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M640 -168Q646 -168 649.5 -171.5Q653 -175 653 -180V-499Q653 -505 649.5 -508.5Q646 -512 640 -512H180Q175 -512 171.5 -508.5Q168 -505 168 -499V-180Q168 -175 171.5 -171.5Q175 -168 180 -168ZM705 -396V-448H780Q785 -448 788.5 -451.5Q792 -455 792 -461V-780Q792 -785 788.5 -788.5Q785 -792 780 -792H320Q314 -792 310.5 -788.5Q307 -785 307 -780V-564H255V-780Q255 -810 272 -827Q289 -844 320 -844H780Q810 -844 827 -827Q844 -810 844 -780V-461Q844 -430 827 -413Q810 -396 780 -396ZM180 -116Q150 -116 133 -133Q116 -150 116 -180V-499Q116 -530 133 -547Q150 -564 180 -564H643Q669 -564 687 -546Q705 -528 705 -503V-180Q705 -150 688 -133Q671 -116 640 -116ZM550 -657Q550 -657 550 -657Q550 -657 550 -657Q550 -657 550 -657Q550 -657 550 -657Q550 -657 550 -657Q550 -657 550 -657ZM410 -340Q410 -340 410 -340Q410 -340 410 -340Q410 -340 410 -340Q410 -340 410 -340Q410 -340 410 -340Q410 -340 410 -340Q410 -340 410 -340Q410 -340 410 -340Z"/></svg><div><b><span data-i="ko">루페를 항상 위에 표시</span><span data-i="en">Always on top</span></b><span class="fd"><span data-i="ko">루페를 다른 창 위에 표시, 비활성화 시 Alt+Tab과 작업 표시줄에 표시</span><span data-i="en">Keeps the loupe above other windows; off, it appears in Alt+Tab and the taskbar</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M538 -212V-748H748V-212ZM212 -212V-748H422V-212ZM590 -264H696V-696H590ZM264 -264H370V-696H264ZM264 -696V-264ZM590 -696V-264Z"/></svg><div><b><span data-i="ko">유휴 시 스캔 정지</span><span data-i="en">Idle pause</span></b><span class="fd"><span data-i="ko">조작이 없으면 설정한 시간 뒤 화면 읽기를 정지</span><span data-i="en">Stops reading the screen after a set idle time</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -116 392 -250H180Q154 -250 135 -269Q116 -288 116 -314V-780Q116 -806 135 -825Q154 -844 180 -844H780Q806 -844 825 -825Q844 -806 844 -780V-314Q844 -288 825 -269Q806 -250 780 -250H568ZM480 -210 541 -302H780Q785 -302 788.5 -305.5Q792 -309 792 -314V-780Q792 -785 788.5 -788.5Q785 -792 780 -792H180Q175 -792 171.5 -788.5Q168 -785 168 -780V-314Q168 -309 171.5 -305.5Q175 -302 180 -302H419ZM480 -547Q480 -547 480 -547Q480 -547 480 -547Q480 -547 480 -547Q480 -547 480 -547Q480 -547 480 -547Q480 -547 480 -547Q480 -547 480 -547Q480 -547 480 -547Z"/></svg><div><b><span data-i="ko">메뉴에 툴팁 표시</span><span data-i="en">Menu tooltips</span></b><span class="fd"><span data-i="ko">메뉴 항목에 설명 툴팁 표시</span><span data-i="en">Shows a description for menu items</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M617 -454V-506H746V-454ZM666 -225 563 -303 595 -343 698 -267ZM593 -618 562 -659 664 -737 697 -695ZM166 -404V-556H299L462 -720V-240L299 -404ZM410 -594 320 -504H218V-456H320L410 -366ZM315 -480Z"/></svg><div><b><span data-i="ko">효과음</span><span data-i="en">Sound</span></b><span class="fd"><span data-i="ko">이동 후 정지 시 신호음 재생</span><span data-i="en">Plays a tone when the loupe comes to rest</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M416 -339 633 -480 416 -621ZM116 -480Q116 -517 123.5 -553.5Q131 -590 146 -625L186 -584Q178 -559 173 -533Q168 -507 168 -480Q168 -350 259 -259Q350 -168 480 -168Q610 -168 701 -259Q792 -350 792 -480Q792 -610 701 -701Q610 -792 480 -792Q454 -792 428 -787.5Q402 -783 376 -775L336 -815Q370 -827 405.5 -835.5Q441 -844 478 -844Q554 -844 620 -815.5Q686 -787 736.5 -737Q787 -687 815.5 -621Q844 -555 844 -480Q844 -405 815.5 -339Q787 -273 737 -223Q687 -173 621 -144.5Q555 -116 480 -116Q405 -116 339 -144.5Q273 -173 223 -222.5Q173 -272 144.5 -338Q116 -404 116 -480ZM236.5 -676Q217 -676 203 -690Q189 -704 189 -723.5Q189 -743 203 -757Q217 -771 236.5 -771Q256 -771 270 -757Q284 -743 284 -723.5Q284 -704 270 -690Q256 -676 236.5 -676ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">윈도우 시작 시 자동 실행</span><span data-i="en">Start with Windows</span></b><span class="fd"><span data-i="ko">Windows에 로그인하면 트레이에서 자동 실행</span><span data-i="en">Starts in the tray when you sign in to Windows</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M291 -600Q275 -573 267 -543.5Q259 -514 259 -482Q259 -389 324 -324Q389 -259 482 -259Q514 -259 543 -267Q572 -275 599 -291Q548 -315 503 -347.5Q458 -380 419 -419Q380 -458 347.5 -503.5Q315 -549 291 -600ZM696 -307Q657 -257 600.5 -229.5Q544 -202 480 -202Q364 -202 283 -283Q202 -364 202 -480Q202 -544 230 -601Q258 -658 308 -697Q331 -627 368.5 -566.5Q406 -506 456 -456Q506 -406 566.5 -368Q627 -330 696 -307ZM738 -377Q725 -381 712.5 -385.5Q700 -390 687 -395Q696 -416 700.5 -437.5Q705 -459 705 -482Q705 -575 640 -640Q575 -705 482 -705Q461 -705 438.5 -701Q416 -697 397 -689Q391 -701 386.5 -713Q382 -725 378 -738Q403 -748 428.5 -753Q454 -758 480 -758Q596 -758 677 -677Q758 -596 758 -480Q758 -454 753.5 -428Q749 -402 738 -377ZM454 -835V-942H506V-835ZM454 -18V-125H506V-18ZM749 -712 712 -749 788 -825 825 -788ZM172 -135 135 -172 211 -248 248 -211ZM835 -454V-506H942V-454ZM18 -454V-506H125V-454ZM788 -135 712 -211 749 -248 825 -172ZM211 -712 135 -788 172 -825 248 -749ZM419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Q419 -419 419 -419Z"/></svg><div><b><span data-i="ko">테마</span><span data-i="en">Theme</span></b><span class="fd"><span data-i="ko">앱 테마를 시스템 설정에 따르거나 직접 선택</span><span data-i="en">Follow the system theme or choose one</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480.5 -116Q405 -116 338.5 -144.5Q272 -173 222.5 -222.5Q173 -272 144.5 -338.5Q116 -405 116 -480.5Q116 -556 144.5 -622Q173 -688 222.5 -737.5Q272 -787 338.5 -815.5Q405 -844 480.5 -844Q556 -844 622 -815.5Q688 -787 737.5 -737.5Q787 -688 815.5 -622Q844 -556 844 -480.5Q844 -405 815.5 -338.5Q787 -272 737.5 -222.5Q688 -173 622 -144.5Q556 -116 480.5 -116ZM480 -170Q502 -191 520.5 -240Q539 -289 550 -349H410Q421 -288 439.5 -239Q458 -190 480 -170ZM416 -175Q397 -205 381.5 -250.5Q366 -296 358 -349H197Q229 -280 286.5 -234Q344 -188 416 -175ZM544 -175Q616 -188 673.5 -234Q731 -280 763 -349H602Q592 -296 577 -250Q562 -204 544 -175ZM179 -401H353Q350 -422 349 -442.5Q348 -463 348 -482Q348 -501 349 -520.5Q350 -540 353 -559H179Q173 -540 170.5 -520Q168 -500 168 -480Q168 -460 170.5 -440Q173 -420 179 -401ZM406 -401H554Q557 -423 558 -442Q559 -461 559 -480Q559 -499 558 -518.5Q557 -538 554 -559H406Q403 -538 402 -518.5Q401 -499 401 -480Q401 -461 402 -441.5Q403 -422 406 -401ZM607 -401H781Q787 -420 789.5 -440Q792 -460 792 -480Q792 -500 789.5 -520.5Q787 -541 781 -559H607Q610 -538 611 -517.5Q612 -497 612 -478Q612 -459 611 -439.5Q610 -420 607 -401ZM602 -611H763Q731 -681 674 -726Q617 -771 544 -786Q563 -754 578 -709Q593 -664 602 -611ZM410 -611H550Q539 -672 519.5 -722Q500 -772 480 -790Q460 -772 440.5 -722Q421 -672 410 -611ZM197 -611H358Q367 -664 382 -709Q397 -754 416 -786Q342 -771 285.5 -726Q229 -681 197 -611Z"/></svg><div><b><span data-i="ko">Language</span><span data-i="en">Language</span></b><span class="fd"><span data-i="ko">표시 언어 선택, 한국어와 영어 지원</span><span data-i="en">Choose the display language, Korean or English</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M164 -164V-604H356V-796H796V-164ZM604 -216H744V-744H408V-604H604ZM408 -216H552V-552H408ZM216 -216H356V-552H216ZM604 -604V-552V-604ZM356 -552ZM552 -552ZM604 -604Z"/></svg><div><b><span data-i="ko">UI 크기</span><span data-i="en">UI size</span></b><span class="fd"><span data-i="ko">바, 버튼, 메뉴, 설정 창을 1.5배로 표시, 렌즈 영역은 그대로</span><span data-i="en">Shows the bar, buttons, menu and settings window at 1.5x, the lens as it is</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M481.5 -255Q498 -255 509 -266.5Q520 -278 520 -294Q520 -310 509 -321.5Q498 -333 481.5 -333Q465 -333 454 -321.5Q443 -310 443 -294Q443 -278 454 -266.5Q465 -255 481.5 -255ZM453 -398H509Q509 -431 516 -445Q523 -459 543 -480Q579 -514 591.5 -537Q604 -560 604 -586Q604 -637 570.5 -670.5Q537 -704 484 -704Q440 -704 405 -680Q370 -656 355 -616L406 -595Q417 -624 436.5 -637.5Q456 -651 481 -651Q513 -651 532 -633Q551 -615 551 -587Q551 -564 535.5 -546.5Q520 -529 501 -511Q471 -483 462 -461Q453 -439 453 -398ZM480 -116Q405 -116 338.5 -144.5Q272 -173 222.5 -222.5Q173 -272 144.5 -338.5Q116 -405 116 -480Q116 -556 144.5 -622Q173 -688 222.5 -737.5Q272 -787 338.5 -815.5Q405 -844 480 -844Q556 -844 622 -815.5Q688 -787 737.5 -737.5Q787 -688 815.5 -622Q844 -556 844 -480Q844 -405 815.5 -338.5Q787 -272 737.5 -222.5Q688 -173 622 -144.5Q556 -116 480 -116ZM480 -168Q610 -168 701 -259Q792 -350 792 -480Q792 -610 701 -701Q610 -792 480 -792Q350 -792 259 -701Q168 -610 168 -480Q168 -350 259 -259Q350 -168 480 -168ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">도움말/설정</span><span data-i="en">Help and settings</span></b><span class="fd"><span data-i="ko">트레이 메뉴에서 단축키 페이지와 설정 창 열기</span><span data-i="en">Opens the shortcuts page and settings from the tray menu</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M228 -164Q201 -164 182.5 -182.5Q164 -201 164 -228V-732Q164 -759 182.5 -777.5Q201 -796 228 -796H732Q759 -796 777.5 -777.5Q796 -759 796 -732V-672H744V-732Q744 -736 740 -740Q736 -744 732 -744H228Q224 -744 220 -740Q216 -736 216 -732V-228Q216 -224 220 -220Q224 -216 228 -216H732Q736 -216 740 -220Q744 -224 744 -228V-288H796V-228Q796 -201 777.5 -182.5Q759 -164 732 -164ZM666 -302 629 -339 744 -454H392V-506H744L629 -621L666 -658L844 -480Z"/></svg><div><b><span data-i="ko">설정 내보내기</span><span data-i="en">Export settings</span></b><span class="fd"><span data-i="ko">현재 설정을 파일로 저장</span><span data-i="en">Saves your current settings to a file</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M228 -164Q201 -164 182.5 -182.5Q164 -201 164 -228V-379H216V-228Q216 -224 220 -220Q224 -216 228 -216H732Q736 -216 740 -220Q744 -224 744 -228V-732Q744 -736 740 -740Q736 -744 732 -744H228Q224 -744 220 -740Q216 -736 216 -732V-581H164V-732Q164 -759 182.5 -777.5Q201 -796 228 -796H732Q759 -796 777.5 -777.5Q796 -759 796 -732V-228Q796 -201 777.5 -182.5Q759 -164 732 -164ZM439 -310 402 -346 510 -454H164V-506H510L402 -614L439 -650L609 -480Z"/></svg><div><b><span data-i="ko">설정 가져오기</span><span data-i="en">Import settings</span></b><span class="fd"><span data-i="ko">저장한 설정 파일을 불러옴</span><span data-i="en">Loads a settings file you saved</span></span></div></div>
+            <div class="frow"><svg class="ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M506 -382Q506 -393 498.5 -400.5Q491 -408 480 -408Q469 -408 461.5 -400.5Q454 -393 454 -382Q454 -373 462 -364.5Q470 -356 480 -356Q490 -356 498 -364.5Q506 -373 506 -382ZM454 -432H506V-614H454ZM421 -116 399 -224Q373 -233 346.5 -248Q320 -263 298 -282L194 -247L135 -350L217 -422Q214 -436 212.5 -450.5Q211 -465 211 -480Q211 -494 212.5 -508.5Q214 -523 217 -538L135 -610L194 -712L298 -678Q320 -697 346 -711.5Q372 -726 399 -736L421 -844H539L561 -736Q589 -725 613.5 -711.5Q638 -698 661 -678L766 -712L825 -610L742 -537Q745 -522 746 -508.5Q747 -495 747 -480Q747 -466 745.5 -452Q744 -438 742 -422L824 -350L765 -247L661 -282Q638 -262 613 -248Q588 -234 561 -224L539 -116ZM462 -168H498L517 -268Q555 -275 586.5 -293.5Q618 -312 644 -342L740 -309L759 -339L682 -406Q688 -425 691 -443Q694 -461 694 -480Q694 -500 691 -517.5Q688 -535 682 -553L759 -621L741 -651L643 -619Q621 -646 586.5 -666Q552 -686 517 -692L498 -792H462L443 -692Q406 -686 373.5 -667.5Q341 -649 315 -619L219 -651L201 -621L277 -554Q271 -537 267.5 -518.5Q264 -500 264 -480Q264 -460 267.5 -441.5Q271 -423 277 -406L201 -339L219 -309L315 -341Q340 -312 372.5 -293.5Q405 -275 443 -268ZM480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Q480 -480 480 -480Z"/></svg><div><b><span data-i="ko">설정 초기화</span><span data-i="en">Reset settings</span></b><span class="fd"><span data-i="ko">모든 설정을 기본값으로 복원</span><span data-i="en">Restores all settings to their defaults</span></span></div></div>
+          </div>
+        </div>
+          <!-- rows:end -->
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <h2><span data-i="ko">다운로드</span><span data-i="en">Download</span></h2>
+      <!-- The newest release's notes. Left hidden for the first release, and
+           filled by the script below once there is a release before it. -->
+      <div class="notes" id="notes" hidden>
+        <h3><span id="notes-ver"></span> <span data-i="ko">업데이트 내역</span><span data-i="en">What's new</span></h3>
+        <div id="notes-body"></div>
+      </div>
+      <!-- Straight at the file. /releases/latest/download/<name> always
+           resolves to the newest release's asset, so this never needs
+           editing when a version goes out. -->
+      <!-- Everything about the file sits inside the button - what it is, the
+           version and size, and what it runs on - so the button reads apart
+           from the section's own heading above it. -->
+      <a class="btn" href="https://github.com/legendsteel11/MagicLoupe-App/releases/latest/download/MagicLoupe.exe">
+        <svg class="btn-ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -344.5 317.2 -507.2 354.4 -543.6 454 -444V-796H506V-444L605.6 -543.6L642.8 -507.2ZM276 -212Q249 -212 230.5 -230.7Q212 -249.3 212 -276.3V-336.8H264V-276.3Q264 -271.7 267.8 -267.8Q271.7 -264 276.3 -264H683.7Q688.3 -264 692.2 -267.8Q696 -271.7 696 -276.3V-336.8H748V-276.3Q748 -249.3 729.3 -230.7Q710.7 -212 683.7 -212Z"/></svg>
+        <span class="btn-text">
+          <span class="btn-name">MagicLoupe <span id="dl-ver">v1.0.0</span></span>
+          <span class="btn-sub"><span data-i="ko">Windows 11 이상, 무설치 단일 실행 파일</span><span data-i="en">Windows 11 or later, single executable, no installer</span><span id="dl-size"></span></span>
+        </span>
+      </a>
+    </div>
+  </section>
+
+</main>
+
+
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div>
+        <h4><span data-i="ko">같은 제작자의 다른 도구</span><span data-i="en">Other tools</span></h4>
+        <a href="https://sweepcap.vercel.app/">SweepCap</a>
+        <a href="https://edgetree.vercel.app/">Edgetree</a>
+        <a href="https://tabstick.com">TabStick</a>
+        <a href="https://desk-noise.vercel.app/">DeskNoise</a>
+      </div>
+      <div>
+        <h4><span data-i="ko">라이선스</span><span data-i="en">License</span></h4>
+        <p class="lic">
+          <span data-i="ko">누구나 무료로 사용할 수 있습니다. 별도의 보증 없이 있는 그대로 제공되며, 사용에 따른 책임은 사용자 본인에게 있습니다.</span>
+          <span data-i="en">Free for anyone to use. Provided as is, without warranty of any kind, and used at your own risk.</span>
+        </p>
+        <p class="lic">
+          <span data-i="ko">아이콘: Material Symbols, Google</span><span data-i="en">Icons: Material Symbols by Google</span>
+        </p>
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache License 2.0</a>
+      </div>
+      <div>
+        <h4><span data-i="ko">문의</span><span data-i="en">Contact</span></h4>
+        <a href="mailto:pjh85336@gmail.com">pjh85336@gmail.com</a>
+      </div>
+    </div>
+    <p class="copy">© 2026 MagicLoupe</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var btn = document.getElementById('lang');
+
+  function apply(lang) {
+    document.documentElement.lang = lang;
+    btn.textContent = lang === 'ko' ? 'EN' : 'KR';
+    try { localStorage.setItem('magicloupe.lang', lang); } catch (e) {}
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('magicloupe.lang'); } catch (e) {}
+  var guess = (navigator.language || '').toLowerCase().startsWith('ko') ? 'ko' : 'en';
+  apply(saved || guess);
+
+  btn.addEventListener('click', function () {
+    apply(document.documentElement.lang === 'ko' ? 'en' : 'ko');
+  });
+})();
+</script>
+
+<script>
+(function () {
+  var box = document.getElementById('shots');
+  if (!box) return;
+  var shots = box.getElementsByTagName('img');
+  if (shots.length < 2) return;
+  // Still for whoever asked for less movement: the fade is decoration, and the
+  // first capture says the same thing on its own.
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  if (still && still.matches) return;
+
+  var at = 0;
+  setInterval(function () {
+    shots[at].className = '';
+    at = (at + 1) % shots.length;
+    shots[at].className = 'on';
+  }, 3600);
+})();
+</script>
+
+<script>
+(function () {
+  // A square holding several pictures steps through them, quicker than the
+  // hero: these are the steps of one gesture rather than separate scenes.
+  //
+  // Only while its card is being looked at - the pointer on the card, or on a
+  // screen with no pointer, the card crossing the middle of the view - and
+  // back to the first picture after. Every card moving at once was too busy
+  // (owner, 2026-09-14). Still for whoever asked for less movement.
+  var STEP = 1000;
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  var touch = window.matchMedia && window.matchMedia('(hover: none)');
+  var shots = document.querySelectorAll('.shot');
+
+  Array.prototype.forEach.call(shots, function (shot) {
+    var imgs = shot.getElementsByTagName('img');
+    if (imgs.length < 2) return;
+    var at = 0, timer = null;
+    var card = shot.closest ? (shot.closest('.tile') || shot) : shot;
+
+    function show(i) {
+      imgs[at].className = '';
+      at = i;
+      imgs[at].className = 'on';
+    }
+    function play() {
+      if (timer || (still && still.matches)) return;
+      timer = setInterval(function () { show((at + 1) % imgs.length); }, STEP);
+    }
+    function rest() {
+      if (timer) { clearInterval(timer); timer = null; }
+      show(0);
+    }
+
+    imgs[0].className = 'on';
+    if (touch && touch.matches && 'IntersectionObserver' in window) {
+      new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { if (e.isIntersecting) play(); else rest(); });
+      }, { rootMargin: '-35% 0px -35% 0px' }).observe(card);
+    } else {
+      card.addEventListener('mouseenter', play);
+      card.addEventListener('mouseleave', rest);
+    }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  // The feature list as an accordion: every group a square button over its
+  // rows, the first one open and the rest folded until asked for. Each button
+  // opens and closes its own group only.
+  var groups = document.querySelectorAll('#ftable .fgroup');
+  Array.prototype.forEach.call(groups, function (g, i) {
+    var b = g.querySelector('.facc');
+    if (!b) return;
+    function set(open) {
+      if (open) g.classList.remove('shut'); else g.classList.add('shut');
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    set(i === 0);
+    b.addEventListener('click', function () { set(g.classList.contains('shut')); });
+  });
+})();
+</script>
+
+<button type="button" class="totop" id="totop">
+  <span class="sr" data-i="ko">맨 위로</span><span class="sr" data-i="en">Back to top</span>
+</button>
+<script>
+(function () {
+  // Shown once the page is scrolled past about a screen. Straight to the top
+  // for whoever asked for less movement.
+  var b = document.getElementById('totop');
+  if (!b) return;
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)');
+  function update() {
+    if ((window.pageYOffset || document.documentElement.scrollTop) > 600) b.classList.add('show');
+    else b.classList.remove('show');
+  }
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+  b.addEventListener('click', function () {
+    var smooth = !(still && still.matches);
+    try { window.scrollTo({ top: 0, behavior: smooth ? 'smooth' : 'auto' }); }
+    catch (e) { window.scrollTo(0, 0); }
+  });
+})();
+</script>
+
+<script>
+(function () {
+  // The download's version and size, and the newest release's notes, read from
+  // the public repository. Nothing here is needed for the page to work: when
+  // the request fails, or there is no release yet, the version written into
+  // the page stays and the notes stay hidden.
+  var REPO = 'legendsteel11/MagicLoupe-App';
+  var verEl = document.getElementById('dl-ver');
+  var sizeEl = document.getElementById('dl-size');
+  if (!window.fetch || !verEl) return;
+
+  function esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Release notes are markdown. Only what notes are made of is read: list
+  // lines, headings and plain lines; everything is escaped first.
+  function notesHtml(md) {
+    var out = [], inList = false;
+    md.replace(/\r/g, '').split('\n').forEach(function (line) {
+      var t = line.trim();
+      var li = /^[-*]\s+(.*)$/.exec(t);
+      if (li) {
+        if (!inList) { out.push('<ul>'); inList = true; }
+        out.push('<li>' + esc(li[1]) + '</li>');
+        return;
+      }
+      if (inList) { out.push('</ul>'); inList = false; }
+      if (!t) return;
+      out.push('<p>' + esc(t.replace(/^#+\s*/, '')) + '</p>');
+    });
+    if (inList) out.push('</ul>');
+    return out.join('');
+  }
+
+  fetch('https://api.github.com/repos/' + REPO + '/releases?per_page=5',
+        { headers: { Accept: 'application/vnd.github+json' } })
+    .then(function (r) { return r.ok ? r.json() : []; })
+    .then(function (list) {
+      var rel = (list || []).filter(function (x) { return !x.draft && !x.prerelease; });
+      if (!rel.length) return;
+      var latest = rel[0];
+      var tag = latest.tag_name || '';
+      var ver = tag.charAt(0) === 'v' ? tag : 'v' + tag;
+      var exe = (latest.assets || []).filter(function (a) {
+        return a.name === 'MagicLoupe.exe';
+      })[0];
+      verEl.textContent = ver;
+      if (exe && sizeEl)
+        sizeEl.textContent = ' / ' + Math.round(exe.size / 1024).toLocaleString('en-US') + ' KB';
+
+      // The first release has nothing to say it changed from.
+      if (rel.length > 1 && latest.body && latest.body.trim()) {
+        document.getElementById('notes-ver').textContent = ver;
+        document.getElementById('notes-body').innerHTML = notesHtml(latest.body);
+        document.getElementById('notes').hidden = false;
+      }
+    })
+    .catch(function () {});
+})();
+</script>
+
+<!-- Vercel Web Analytics. Served by Vercel; inert when the page is opened
+     locally. The queue shim lets an event fire before the script has loaded. -->
+<script>
+window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
+</script>
+<script defer src="/_vercel/insights/script.js"></script>
+
+<script>
+(function () {
+  // A click on the release asset starts a file download and leaves the page
+  // loaded, so a plain handler still has time to send the event.
+  var links = document.querySelectorAll('a[href*="/releases/latest/download/"]');
+  for (var i = 0; i < links.length; i++) {
+    links[i].addEventListener('click', function (e) {
+      window.va('event', {
+        name: 'Download',
+        data: {
+          place: e.currentTarget.className === 'btn' ? 'section' : 'footer',
+          lang: document.documentElement.lang
+        }
+      });
+    });
+  }
+})();
+</script>
+
+</body>
+</html>
