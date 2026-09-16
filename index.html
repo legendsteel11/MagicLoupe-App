@@ -179,18 +179,20 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
 /* The same list for how it works, straight under its title. */
 .tech ul{margin-top:0}
 
-/* A band of light running along the technology section's grid, down the
-   columns and the rows at once (owner, 2026-09-16). Each band is seven of the
-   grid's own lines, brightest in the middle and fading to either side, and it
-   moves one cell at a time: two copies a cell apart trade places by opacity,
-   so every line brightens and dims smoothly while the band only ever sits on
-   the grid. Transform and opacity alone, so the compositor runs it and nothing
-   is repainted; the script sizes the travel and stops it off screen. */
-#tech{position:relative;overflow:hidden}
-#tech > .wrap{position:relative}
+/* A band of light running along a grid section's lines: down the columns and
+   the rows at once under the technology, from the middle out to both sides
+   under the about, and from above alone under the download (owner,
+   2026-09-16). Each band is seven of the grid's own lines, brightest in the
+   middle and fading to either side, and it moves one cell at a time: two
+   copies a cell apart trade places by opacity, so every line brightens and
+   dims smoothly while the band only ever sits on the grid. Transform and
+   opacity alone, so the compositor runs it and nothing is repainted; the
+   script sizes the travel and stops it off screen. */
+.scanbox{position:relative;overflow:hidden}
+.scanbox > .wrap{position:relative}
 .scan{position:absolute;inset:0;pointer-events:none}
 .scan i{position:absolute;animation-play-state:paused}
-#tech.run .scan i{animation-play-state:running}
+.scanbox.run .scan i{animation-play-state:running}
 .scan-v{
   top:0;bottom:0;left:-224px;width:224px;
   background:
@@ -222,6 +224,25 @@ section h2{font-size:24px;font-weight:500;color:#c9cbd3;letter-spacing:-.01em;ma
 .scan-h.b{top:-192px;animation-name:scan-y, scan-in}
 @keyframes scan-x{to{transform:translateX(calc(var(--cols, 60) * 32px))}}
 @keyframes scan-y{to{transform:translateY(calc(var(--rows, 30) * 32px))}}
+/* The about section parts its light in the middle and walks a band out to
+   either side (owner, 2026-09-16). Both stand with their bright line - the
+   fourth of the seven - on the grid line nearest the middle, which the script
+   measures: on the exact middle the pair would sit half a cell off the grid on
+   a screen of the wrong width. Each has half the width to cross, and the copy
+   a cell ahead leads in the direction its own band travels, which is why that
+   offset has a sign here. */
+.scan-v.l, .scan-v.r{
+  left:calc(var(--mid, 50%) - 96px);
+  animation-duration:calc(var(--half, 30) * .15s), .15s;
+  animation-timing-function:steps(var(--half, 30)), linear;
+  animation-iteration-count:infinite, infinite;
+}
+.scan-v.l{animation-name:scan-xl, scan-out}
+.scan-v.r{animation-name:scan-xr, scan-out}
+.scan-v.l.b{margin-left:-32px;animation-name:scan-xl, scan-in}
+.scan-v.r.b{margin-left:32px;animation-name:scan-xr, scan-in}
+@keyframes scan-xl{to{transform:translateX(calc(var(--half, 30) * -32px))}}
+@keyframes scan-xr{to{transform:translateX(calc(var(--half, 30) * 32px))}}
 @keyframes scan-out{from{opacity:1}to{opacity:0}}
 @keyframes scan-in{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){
@@ -444,7 +465,8 @@ footer{
     </div>
   </div>
 
-  <section id="about" class="intro">
+  <section id="about" class="intro scanbox">
+    <div class="scan" aria-hidden="true"><i class="scan-v l"></i><i class="scan-v l b"></i><i class="scan-v r"></i><i class="scan-v r b"></i></div>
     <div class="wrap">
       <h2><span data-i="ko">매직 루페는</span><span data-i="en">MagicLoupe is</span></h2>
       <p class="lead">
@@ -581,7 +603,7 @@ footer{
     </div>
   </section>
 
-  <section id="tech" class="intro tech">
+  <section id="tech" class="intro tech scanbox">
     <div class="scan" aria-hidden="true"><i class="scan-v"></i><i class="scan-v b"></i><i class="scan-h"></i><i class="scan-h b"></i></div>
     <div class="wrap">
       <h2><span data-i="ko">적용 기술</span><span data-i="en">Technology</span></h2>
@@ -731,7 +753,8 @@ footer{
     </div>
   </section>
 
-  <section id="download">
+  <section id="download" class="scanbox">
+    <div class="scan" aria-hidden="true"><i class="scan-h"></i><i class="scan-h b"></i></div>
     <div class="wrap">
       <h2><span data-i="ko">다운로드</span><span data-i="en">Download</span></h2>
       <!-- The newest release's notes. Left hidden for the first release, and
@@ -990,25 +1013,40 @@ footer{
 window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
 </script>
 <script>
-// The technology section's light bands: how many cells each has to cross -
-// the section, the band's own seven, and seven more as a pause off the far
-// edge - and running only while the section is on screen.
+// The light bands on the grid: how many cells each has to cross - the box, the
+// band's own seven, and seven more as a pause off the far edge - and running
+// only while the box is on screen. A band that parts in the middle crosses
+// half the width, which is what the third count is for.
 (function () {
-  var s = document.getElementById('tech');
-  if (!s) return;
-  function size() {
+  var boxes = document.querySelectorAll('.scanbox');
+  if (!boxes.length) return;
+  function size(s) {
     s.style.setProperty('--cols', Math.ceil(s.clientWidth / 32) + 14);
+    s.style.setProperty('--half', Math.ceil(s.clientWidth / 64) + 14);
+    s.style.setProperty('--mid', Math.round(s.clientWidth / 64) * 32 + 'px');
     s.style.setProperty('--rows', Math.ceil(s.clientHeight / 32) + 14);
   }
-  size();
-  if ('ResizeObserver' in window) new ResizeObserver(size).observe(s);
-  else window.addEventListener('resize', size);
-  if ('IntersectionObserver' in window) {
-    new IntersectionObserver(function (entries) {
-      s.classList.toggle('run', entries[0].isIntersecting);
-    }).observe(s);
+  function sizeAll() {
+    for (var i = 0; i < boxes.length; i++) size(boxes[i]);
+  }
+  sizeAll();
+  if ('ResizeObserver' in window) {
+    var ro = new ResizeObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) size(entries[i].target);
+    });
+    for (var i = 0; i < boxes.length; i++) ro.observe(boxes[i]);
   } else {
-    s.classList.add('run');
+    window.addEventListener('resize', sizeAll);
+  }
+  if ('IntersectionObserver' in window) {
+    var io2 = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        entries[i].target.classList.toggle('run', entries[i].isIntersecting);
+      }
+    });
+    for (var j = 0; j < boxes.length; j++) io2.observe(boxes[j]);
+  } else {
+    for (var k = 0; k < boxes.length; k++) boxes[k].classList.add('run');
   }
 })();
 </script>
