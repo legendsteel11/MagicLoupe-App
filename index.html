@@ -763,13 +763,17 @@ footer{
         <h3><span id="notes-ver"></span> <span data-i="ko">업데이트 내역</span><span data-i="en">What's new</span></h3>
         <div id="notes-body"></div>
       </div>
-      <!-- Straight at the file. /releases/latest/download/<name> always
-           resolves to the newest release's asset, so this never needs
-           editing when a version goes out. -->
+      <!-- At the release, and the script below moves it on to the file.
+           The asset carries its version in its name - MagicLoupe-v1.0.0-win-x64.exe -
+           so the name is not a constant this page can hold, and
+           /releases/latest/download/<name> cannot be written down here any
+           more. What is written down is the page that always exists: if the
+           script does not run, or GitHub's API is unreachable, the button
+           still lands somewhere the file can be had in one more press. -->
       <!-- Everything about the file sits inside the button - what it is, the
            version and size, and what it runs on - so the button reads apart
            from the section's own heading above it. -->
-      <a class="btn" href="https://github.com/legendsteel11/MagicLoupe-App/releases/latest/download/MagicLoupe.exe">
+      <a class="btn" id="dl" href="https://github.com/legendsteel11/MagicLoupe-App/releases/latest">
         <svg class="btn-ic" viewBox="59 -901 843 843" aria-hidden="true"><path d="M480 -344.5 317.2 -507.2 354.4 -543.6 454 -444V-796H506V-444L605.6 -543.6L642.8 -507.2ZM276 -212Q249 -212 230.5 -230.7Q212 -249.3 212 -276.3V-336.8H264V-276.3Q264 -271.7 267.8 -267.8Q271.7 -264 276.3 -264H683.7Q688.3 -264 692.2 -267.8Q696 -271.7 696 -276.3V-336.8H748V-276.3Q748 -249.3 729.3 -230.7Q710.7 -212 683.7 -212Z"/></svg>
         <span class="btn-text">
           <span class="btn-name">MagicLoupe <span id="dl-ver">v1.0.0</span></span>
@@ -989,12 +993,18 @@ footer{
       var latest = rel[0];
       var tag = latest.tag_name || '';
       var ver = tag.charAt(0) === 'v' ? tag : 'v' + tag;
+      // By extension, not by name: the name carries the version, so this page
+      // would have to be edited on every release to know it.
       var exe = (latest.assets || []).filter(function (a) {
-        return a.name === 'MagicLoupe.exe';
+        return /\.exe$/i.test(a.name || '');
       })[0];
       verEl.textContent = ver;
-      if (exe && sizeEl)
-        sizeEl.textContent = ' / ' + Math.round(exe.size / 1024).toLocaleString('en-US') + ' KB';
+      if (exe) {
+        var btn = document.getElementById('dl');
+        if (btn && exe.browser_download_url) btn.href = exe.browser_download_url;
+        if (sizeEl)
+          sizeEl.textContent = ' / ' + Math.round(exe.size / 1024).toLocaleString('en-US') + ' KB';
+      }
 
       // The first release has nothing to say it changed from.
       if (rel.length > 1 && latest.body && latest.body.trim()) {
@@ -1056,7 +1066,7 @@ window.va = window.va || function () { (window.vaq = window.vaq || []).push(argu
 (function () {
   // A click on the release asset starts a file download and leaves the page
   // loaded, so a plain handler still has time to send the event.
-  var links = document.querySelectorAll('a[href*="/releases/latest/download/"]');
+  var links = document.querySelectorAll('a[href*="/releases/"]');
   for (var i = 0; i < links.length; i++) {
     links[i].addEventListener('click', function (e) {
       window.va('event', {
