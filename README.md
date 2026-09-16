@@ -67,4 +67,4 @@ Icons: [Material Symbols](https://fonts.google.com/icons) by Google
 ## License
 
 Free for anyone to use. Provided as is, without warranty of any kind, and used
-at your own risk.
+at your own risk. Full text: [LICENSE.md](LICENSE.md)
