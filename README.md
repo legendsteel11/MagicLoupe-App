@@ -20,7 +20,7 @@ in `%AppData%\MagicLoupe`.
 
 ## Screenshots
 
-![MagicLoupe measuring the gaps between elements](screenshots/hero-sc-01.png)
+![MagicLoupe measuring the gaps between elements](screenshots/hero.gif)
 
 ## Features
 

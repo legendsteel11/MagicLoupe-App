@@ -18,7 +18,7 @@ Windows 11 이상에서 실행되며 관리자 권한이 필요하지 않습니�
 
 ## 스크린샷
 
-![요소 사이의 간격을 측정하는 MagicLoupe](screenshots/hero-sc-01.png)
+![요소 사이의 간격을 측정하는 MagicLoupe](screenshots/hero.gif)
 
 ## 주요 기능
 
